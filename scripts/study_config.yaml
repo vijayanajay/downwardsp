@@ -1,0 +1,19 @@
+# Study configuration — weekly sweet-spot event study
+# Every value here is a lever; change and re-run analyze.py + build_report.py.
+
+study:
+  horizon_days: 5          # trading sessions in the look-ahead window
+  stop_pct: 2.2            # structural stop (BRD gate)
+  targets_pct: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0]
+
+economics:
+  friction_pct: 0.35       # round-trip: STT + stamp + DP + GST + slippage
+  stcg_pct: 20.0           # flat short-term capital gains tax (July 2024 regime)
+
+quality:
+  durability_min_years: 4           # repeater = hit target in >= 4 of 5 years
+  durability_min_hits_per_year: 20  # minimum fp-wins in a year to count that year
+
+report:
+  top_n_repeats: 30        # repeaters shown in the HTML report table
+  assets_per_year_note: 5  # events/5y -> per-year opportunity count divisor

@@ -1,0 +1,34 @@
+# Central system parameters (Phase 1.3).
+# Every value can be overridden by environment variables of the form
+# NSE_CASH_<SECTION>__<KEY> (double underscore), e.g.
+#   NSE_CASH_CAPITAL__BASE_CAPITAL=750000
+#   NSE_CASH_PATHS__DUCKDB_PATH=data/db/other.duckdb
+
+capital:
+  base_capital: 500000.0      # Rs 5 Lakhs base
+  num_slots: 4                # exactly 4 concurrent positions
+  slot_capital: 125000.0      # Rs 1.25 Lakhs per slot
+  tranche_capital: 62500.0    # Rs 62.5k per tranche
+
+risk:
+  max_structural_stop: 0.022  # max 2.20% stop gate
+  max_gap_entry: 0.012        # +1.20% morning gap-up ceiling
+  stall_threshold: 0.008      # +0.80% minimum gain at Day T+2 3:15 PM
+  max_holding_days: 5         # hard Day 5 3:15 PM time exit
+  kill_switch_drawdown: 0.075 # 7.5% portfolio drawdown -> 10-day halt
+
+friction:
+  stt_delivery: 0.001         # 0.1% buy + 0.1% sell
+  nse_turnover: 0.0000345     # 0.00345% buy + sell
+  sebi_fee: 0.000001          # 0.0001% buy + sell
+  stamp_duty: 0.00015         # 0.015% buy only
+  gst_rate: 0.18              # 18% on brokerage & exchange fees
+  dp_charge_per_sell: 15.93   # Rs 15.93 flat per sell day
+  slippage_per_side: 0.0005   # 0.05% in + 0.05% out
+  stcg_tax_rate: 0.20         # 20.0% flat STCG
+
+paths:
+  raw_dir: data/raw
+  parquet_dir: data/processed
+  duckdb_path: data/db/nse_market.duckdb
+  ledger_db_path: data/db/portfolio_ledger.sqlite3
