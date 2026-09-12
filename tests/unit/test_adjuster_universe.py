@@ -96,6 +96,35 @@ def test_apply_adjustments_no_actions_is_identity():
     assert out.loc[0, "volume_adj"] == pytest.approx(1000.0)
 
 
+def test_apply_adjustments_simultaneous_on_same_ex_date():
+    """Split (10:2 -> AF=0.2) and Bonus (1:1 -> AF=0.5) on same ex-date: composite AF = 0.10."""
+    bars = pd.DataFrame({
+        "date": [date(2026, 9, 9), date(2026, 9, 10)],
+        "open": [1000.0, 100.0], "high": [1050.0, 105.0],
+        "low": [980.0, 98.0], "close": [1020.0, 102.0],
+        "volume": [1000, 10000], "deliverable_qty": [500, 5000],
+    })
+    actions = pd.DataFrame({
+        "ex_date": [date(2026, 9, 10), date(2026, 9, 10)],
+        "ratio_a": [4.0, 1.0], "ratio_b": [1.0, 1.0],  # 10->2 split and 1:1 bonus
+    })
+    out = apply_adjustments(bars, actions)
+    # Day 1 adjusted by 0.2 * 0.5 = 0.10
+    assert out.loc[0, "close_adj"] == pytest.approx(102.0)
+    assert out.loc[1, "close_adj"] == pytest.approx(102.0)
+    assert out.loc[0, "volume_adj"] == pytest.approx(10000.0)
+
+
+def test_classify_action_expanded_and_ncrps_filtering():
+    assert classify_action(
+        "SUB-DIVISION OF EQUITY SHARES FROM RS. 10/- EACH TO RE. 1/- EACH"
+    ) == ("SPLIT", 9.0, 1.0)
+    assert classify_action("BONUS ISSUE IN THE RATIO OF 1:2") == ("BONUS", 1.0, 2.0)
+    # Preference shares / debentures must be excluded from common equity bonus adjustments
+    assert classify_action("Scheme Of Arrangement - Bonus Ncrps 4:1")[0] is None
+    assert classify_action("BONUS 1:1 PREFERENCE SHARES")[0] is None
+
+
 # ---------------------------------------------------------------------------
 # PIT universe gates (pure math layer; DuckDB path covered in integration test)
 # ---------------------------------------------------------------------------
@@ -103,11 +132,13 @@ def test_apply_adjustments_no_actions_is_identity():
 
 def test_universe_constants_match_brd():
     from nse_cash.core.constants import (ADTV_MIN_RUPEES, PRICE_FLOOR_RUPEES,
-                                         UNIVERSE_SIZE, UNIVERSE_WINDOW_DAYS)
+                                         UNIVERSE_MIN_SESSIONS, UNIVERSE_SIZE,
+                                         UNIVERSE_WINDOW_DAYS)
     assert ADTV_MIN_RUPEES == 50_000_000.0   # Rs 5 Crores
     assert PRICE_FLOOR_RUPEES == 50.0
     assert UNIVERSE_SIZE == 500
     assert UNIVERSE_WINDOW_DAYS == 90
+    assert UNIVERSE_MIN_SESSIONS == 60
 
 
 def test_adtv_gate_math():

@@ -48,12 +48,15 @@ def apply_adjustments(bars: pd.DataFrame, actions: pd.DataFrame) -> pd.DataFrame
     if not actions.empty:
         acts = actions.dropna(subset=["ex_date"]).copy()
         acts["ex_date"] = pd.to_datetime(acts["ex_date"])
-        # Keep the strongest action per ex-date if multiple exist
-        acts = (acts.sort_values(["ex_date", "ratio_a"])
-                    .drop_duplicates(subset=["ex_date"], keep="last"))
-        for _, row in acts.iterrows():
-            factor = adjustment_factor(float(row["ratio_a"]), float(row["ratio_b"]))
-            af = af.where(dates >= row["ex_date"], af * factor)
+        # Group by ex-date and compute cumulative factor per ex-date
+        # so simultaneous actions (e.g. split + bonus) multiply rather than dropping one
+        acts = acts.sort_values("ex_date")
+        for ex_date, group in acts.groupby("ex_date"):
+            cum_group_factor = 1.0
+            for _, row in group.iterrows():
+                factor = adjustment_factor(float(row["ratio_a"]), float(row["ratio_b"]))
+                cum_group_factor *= factor
+            af = af.where(dates >= ex_date, af * cum_group_factor)
 
     out["open_adj"] = out["open"] * af
     out["high_adj"] = out["high"] * af
@@ -82,8 +85,7 @@ def refresh_adjustments(store) -> int:
     """
     con: duckdb.DuckDBPyConnection = store.con
 
-    # Bulk identity pass: symbols with no split/bonus actions whose adjusted
-    # columns are missing (the common case for a fresh ingestion)
+    # Bulk identity pass 1: symbols with no split/bonus actions
     con.execute("""
         UPDATE daily_bars b SET
             open_adj = b.open, high_adj = b.high, low_adj = b.low,
@@ -94,13 +96,32 @@ def refresh_adjustments(store) -> int:
             WHERE action_type IN ('SPLIT', 'BONUS'))
     """)
 
-    # Per-symbol pass: symbols with actions (or still-stale adjusted columns)
+    # Bulk identity pass 2: symbols with actions where new bars are after latest ex-date (AF = 1.0)
+    con.execute("""
+        UPDATE daily_bars b SET
+            open_adj = b.open, high_adj = b.high, low_adj = b.low,
+            close_adj = b.close, volume_adj = b.volume,
+            delivery_adj = b.deliverable_qty
+        WHERE b.close_adj IS NULL
+          AND b.date >= (
+              SELECT max(ca.ex_date) FROM corporate_actions ca
+              WHERE ca.symbol = b.symbol AND ca.action_type IN ('SPLIT', 'BONUS')
+          )
+    """)
+
+    # Per-symbol pass: only symbols with unapplied actions or missing pre-ex adjustments
     symbols = [r[0] for r in con.execute("""
         SELECT DISTINCT symbol FROM corporate_actions
-        WHERE action_type IN ('SPLIT', 'BONUS')
+        WHERE action_type IN ('SPLIT', 'BONUS') AND adjustment_factor IS NULL
         UNION
-        SELECT DISTINCT symbol FROM daily_bars
-        WHERE close_adj IS NULL
+        SELECT DISTINCT b.symbol FROM daily_bars b
+        JOIN (
+            SELECT symbol, max(ex_date) AS max_ex
+            FROM corporate_actions
+            WHERE action_type IN ('SPLIT', 'BONUS')
+            GROUP BY symbol
+        ) ca ON b.symbol = ca.symbol
+        WHERE b.close_adj IS NULL AND b.date < ca.max_ex
     """).fetchall()]
     if not symbols:
         log.info("adjuster: nothing further to do")

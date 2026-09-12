@@ -47,7 +47,7 @@ def test_parse_legacy_filters_eq_and_maps_columns():
     row = df[df["symbol"] == "TCS"].iloc[0]
     assert row["open"] == 100.5 and row["close"] == 101.0
     assert row["volume"] == 150000
-    assert row["turnover"] == 15225000 * 1e5             # lakhs scaled to rupees
+    assert row["turnover"] == 15225000                   # absolute INR in legacy bhavcopy
     assert row["date"] == D
 
 
@@ -90,6 +90,13 @@ INFY,EQ,10-SEP-2026,50.00,50.5,51.0,49.5,50.5,50.5,50.2,900000,4522.00,30000,500
 """
 
 
+def test_legacy_url_casing():
+    from nse_cash.data.bhavcopy import legacy_url
+    url = legacy_url(date(2023, 9, 15))
+    # Must preserve lowercase scheme/path for Apache/Akamai servers
+    assert url == "https://archives.nseindia.com/content/historical/EQUITIES/2023/SEP/cm15SEP2023bhav.csv.zip"
+
+
 def test_parse_pr_includes_delivery_columns():
     df = parse_pr(_zip_bytes(PR_CSV, "sec_bhavdata_full_10092026.csv"), D)
     assert set(df["symbol"]) == {"TCS", "INFY"}
@@ -97,6 +104,32 @@ def test_parse_pr_includes_delivery_columns():
     assert row["deliverable_qty"] == 110000
     assert row["delivery_pct"] == 73.33
     assert row["turnover"] == 1522.50 * 1e5
+
+
+def test_parse_pr_handles_multi_file_pr_zip():
+    """Real NSE PR zips contain Bc...csv, Pd...csv, etc. Parser must find sec_bhavdata_full."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        # Put unrelated Bc...csv first alphabetically to test that it is not naively picked
+        zf.writestr("Bc100926.csv", "SYMBOL,SERIES,PURPOSE\nTCS,EQ,AGM\n")
+        zf.writestr("sec_bhavdata_full_10092026.csv", PR_CSV)
+    df = parse_pr(buf.getvalue(), D)
+    assert set(df["symbol"]) == {"TCS", "INFY"}
+
+
+def test_parse_ind_close_real_nse_format():
+    from nse_cash.data.indices import _parse_ind_close
+    sample = (
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value,Points Change,Change(%),Volume,Turnover (Rs. Cr.),P/E,P/B,Div Yield\n"
+        "Nifty 50,02-09-2024,25333.6,25333.65,25235.5,25278.7,42.8,.17,222815249,28187.71,23.51,4.27,1.21\n"
+        "Nifty 500,02-09-2024,23835.2,23835.20,23693.65,23760.7,26.15,.11,2522874000,45000.0,26.5,4.1,1.1\n"
+    )
+    df = _parse_ind_close(sample, date(2024, 9, 2))
+    assert len(df) == 2
+    n50 = df[df["index_name"] == "NIFTY 50"].iloc[0]
+    assert n50["close"] == pytest.approx(25278.7)
+    assert n50["open"] == pytest.approx(25333.6)
+    assert not pd.isna(n50["close"])
 
 
 # ---------------------------------------------------------------------------

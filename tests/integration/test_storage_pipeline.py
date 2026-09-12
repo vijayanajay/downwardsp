@@ -72,6 +72,15 @@ def test_parquet_export_partitioned_by_year(store, tmp_path):
         assert p.exists()
 
 
+def test_parquet_export_selective_year(store, tmp_path):
+    dates = [date(2025, 12, 31), date(2026, 1, 2)]
+    store.upsert_daily_bars(_bars("TCS", dates))
+    out_dir = tmp_path / "processed_single"
+    written = store.parquet_export(out_dir, year=2026)
+    assert [p.name for p in written] == ["daily_bars_2026.parquet"]
+    assert written[0].exists()
+
+
 def test_adjuster_and_universe_end_to_end(store, tmp_path):
     """Full Phase 3 flow on synthetic data: bars -> actions -> adjustments -> PIT."""
     from nse_cash.core.adjuster import refresh_adjustments
@@ -131,10 +140,14 @@ def test_governance_persist_and_query(store):
         store, d,
         {"ASM": {"SKETCHY"}, "GSM": set()},
         pd.DataFrame([{"symbol": "LOCKED", "date": d}]),
-        pd.DataFrame([{"symbol": "RESULT", "meeting_date": date(2026, 9, 12)}]),
+        pd.DataFrame([
+            {"symbol": "RESULT", "meeting_date": date(2026, 9, 12)},       # in 2 days -> must be excluded
+            {"symbol": "FAR_RESULT", "meeting_date": date(2026, 12, 10)},   # in 3 months -> must NOT be excluded
+        ]),
     )
     excluded = excluded_symbols(store.con, d)
     assert {"SKETCHY", "LOCKED", "RESULT"} <= excluded
+    assert "FAR_RESULT" not in excluded
 
 
 def test_status_cli_renders(store, tmp_path, monkeypatch, capsys):

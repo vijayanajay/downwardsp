@@ -95,21 +95,37 @@ def fetch_circuit_bands(client, d: Date) -> pd.DataFrame:
 def circuit_hits_from_bars(con, start: Date, end: Date) -> pd.DataFrame:
     """Detect upper/lower circuit hits deterministically from bhavcopy bars.
 
-    A session is a circuit hit when close == high == low (price locked all day)
-    or when |return| >= 19% with zero range, which on NSE means the instrument
-    traded only at its band price.
+    ponytail: Exact exchange price bands vary per stock (2%, 5%, 10%, 20%).
+    Without the raw daily band feed, we detect true locked sessions:
+      1. High == Low with non-zero volume (locked flat all session).
+      2. Upper/lower boundary locks: Close == High with return >= +9.8% or >= +19.8%,
+         or Close == Low with return <= -9.8% or <= -19.8%.
+    Normal +5% trend candles that close strong are preserved as valid momentum.
     """
+    buf_start = pd.Timestamp(start) - pd.Timedelta(days=5)
     df = con.execute("""
-        SELECT symbol, date, open, high, low, close,
-               lag(close) OVER (PARTITION BY symbol ORDER BY date) AS prev_close
-        FROM daily_bars
-        WHERE date BETWEEN ? AND ?
-    """, [start, end]).df()
+        WITH w AS (
+            SELECT symbol, date, open, high, low, close, volume,
+                   lag(close) OVER (PARTITION BY symbol ORDER BY date) AS prev_close
+            FROM daily_bars
+            WHERE date BETWEEN ? AND ?
+        )
+        SELECT * FROM w WHERE date BETWEEN ? AND ?
+    """, [buf_start, end, start, end]).df()
     if df.empty:
         return pd.DataFrame(columns=["symbol", "date"])
-    locked = (df["high"] == df["low"]) & (df["close"] == df["high"])
-    big_move = ((df["close"] / df["prev_close"] - 1.0).abs() >= 0.19) & locked
-    hits = df[locked | big_move][["symbol", "date"]]
+    df = df.dropna(subset=["prev_close", "close", "high", "low"])
+    if df.empty:
+        return pd.DataFrame(columns=["symbol", "date"])
+
+    ret = (df["close"] - df["prev_close"]) / df["prev_close"]
+    full_day_lock = (df["high"] == df["low"]) & (df["volume"] > 0)
+    band_lock_10 = (df["close"] == df["high"]) & (ret >= 0.098)
+    band_lock_20 = (df["close"] == df["high"]) & (ret >= 0.198)
+    lower_band_10 = (df["close"] == df["low"]) & (ret <= -0.098)
+    lower_band_20 = (df["close"] == df["low"]) & (ret <= -0.198)
+
+    hits = df[full_day_lock | band_lock_10 | band_lock_20 | lower_band_10 | lower_band_20][["symbol", "date"]]
     return hits.drop_duplicates()
 
 
@@ -148,17 +164,22 @@ def fetch_board_meetings(client, start: Date, end: Date) -> pd.DataFrame:
 def persist_governance(store, d: Date, asm_gsm: dict[str, set[str]],
                        circuit_hits: pd.DataFrame,
                        board_meetings: pd.DataFrame) -> int:
-    """Write the day's exclusion flags into the governance table."""
+    """Write the day's exclusion flags into the governance table.
+    
+    For BOARD meetings, `date` stores the actual `meeting_date` so lookahead
+    queries match the scheduled event window.
+    """
     rows: list[dict] = []
     for kind, symbols in asm_gsm.items():
         for sym in symbols:
             rows.append({"date": d, "list_type": kind, "symbol": sym, "detail": "listed"})
     for _, r in circuit_hits.iterrows():
-        rows.append({"date": d, "list_type": "CIRCUIT", "symbol": r["symbol"],
+        rows.append({"date": r["date"], "list_type": "CIRCUIT", "symbol": r["symbol"],
                      "detail": f"hit on {r['date']}"})
     for _, r in board_meetings.iterrows():
-        rows.append({"date": d, "list_type": "BOARD", "symbol": r["symbol"],
-                     "detail": f"meeting on {r['meeting_date']}"})
+        m_date = pd.Timestamp(r["meeting_date"]).date()
+        rows.append({"date": m_date, "list_type": "BOARD", "symbol": r["symbol"],
+                     "detail": f"meeting scheduled on {m_date} (synced {d})"})
     if not rows:
         return 0
     frame = pd.DataFrame(rows).drop_duplicates(
@@ -170,15 +191,15 @@ def excluded_symbols(con, on_date: Date,
                      lookahead_days: int = BOARD_MEETING_LOOKAHEAD_DAYS) -> set[str]:
     """Symbols to exclude from the universe on `on_date`.
 
-    ASM/GSM/CIRCUIT flags recorded on or within the last 3 sessions before
-    `on_date`, plus BOARD meetings within the next 3 sessions after `on_date`.
+    ASM/GSM/CIRCUIT flags recorded on or within the last 7 calendar days before
+    `on_date`, plus BOARD meetings scheduled within the next lookahead window.
     """
     df = con.execute("""
         SELECT DISTINCT list_type, symbol FROM governance
         WHERE (list_type IN ('ASM', 'GSM', 'CIRCUIT')
                AND date BETWEEN ? AND ?)
            OR (list_type = 'BOARD'
-               AND date >= ? AND date <= ?)
+               AND date BETWEEN ? AND ?)
     """, [pd.Timestamp(on_date) - pd.Timedelta(days=7),
           pd.Timestamp(on_date),
           pd.Timestamp(on_date),

@@ -94,6 +94,12 @@ def _apply_env_overrides(config: SystemConfig) -> None:
             if env in os.environ:
                 overrides[key] = _coerce(os.environ[env], getattr(sub, key))
         if overrides:
+            if section == "capital" and "base_capital" in overrides and "slot_capital" not in overrides:
+                new_base = float(overrides["base_capital"])
+                new_num = int(overrides.get("num_slots", sub.num_slots))
+                overrides["slot_capital"] = new_base / new_num
+                if "tranche_capital" not in overrides:
+                    overrides["tranche_capital"] = overrides["slot_capital"] / 2.0
             setattr(config, section, {**sub.model_dump(), **overrides})
 
 

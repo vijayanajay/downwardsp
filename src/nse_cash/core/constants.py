@@ -3,6 +3,7 @@
 # --- PIT universe gates (Phase 3.2) ---
 UNIVERSE_SIZE = 500
 UNIVERSE_WINDOW_DAYS = 90          # rolling ADTV window
+UNIVERSE_MIN_SESSIONS = 60         # minimum history required before qualifying
 ADTV_MIN_RUPEES = 50_000_000.0     # Rs 5.00 Crores
 PRICE_FLOOR_RUPEES = 50.0          # zero penny stocks
 

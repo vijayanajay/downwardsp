@@ -48,6 +48,8 @@ def _delivery_present(store: MarketStore, d: Date) -> bool:
 def _fetch_day(client: NSEHttpClient, d: Date, raw_dir: Path) -> dict:
     """Network + parse work for one day (thread-safe: no DB access here)."""
     bhav = fetch_bhavcopy(client, d, raw_dir)
+    if bhav is None:
+        return {"date": d, "bhav": None, "mto": None, "idx": None}
     mto = fetch_delivery(client, d, raw_dir)
     idx = fetch_indices_for_date(client, d, raw_dir)
     return {"date": d, "bhav": bhav, "mto": mto, "idx": idx}
@@ -128,17 +130,29 @@ def run_sync(ctx: click.Context, from_date: datetime | None,
             if adjusted:
                 console.print(f"[green]corporate-action adjustments applied "
                               f"to {adjusted} symbol(s)[/]")
-            # PIT universe + governance flags for the latest ingested date
+            # PIT universe + governance flags
             latest = store.latest_date()
             if latest is not None:
                 from nse_cash.core.governance import apply_governance_filters
-                from nse_cash.core.universe import build_pit_universe
-                membership = build_pit_universe(store, latest)
+                from nse_cash.core.universe import build_pit_universe, build_pit_universe_range
+                if from_date is not None or to_date is not None:
+                    start_d = (from_date or to_date).date()
+                    end_d = (to_date or datetime.now()).date()
+                    if start_d > end_d:
+                        start_d, end_d = end_d, start_d
+                    n_pit = build_pit_universe_range(store, start_d, end_d)
+                    console.print(f"[green]PIT universe backfilled for {n_pit} dates[/]")
+                else:
+                    membership = build_pit_universe(store, latest)
+                    console.print(f"[green]PIT universe {latest}: {len(membership)} symbols[/]")
                 excluded = apply_governance_filters(store, latest, client)
-                console.print(f"[green]PIT universe {latest}: {len(membership)} symbols; "
-                              f"governance exclusions: {len(excluded)}[/]")
-            # Parquet export partitioned by year
-            written = store.parquet_export(Path(config.paths.parquet_dir))
+                console.print(f"[green]governance exclusions for {latest}: {len(excluded)}[/]")
+            # Parquet export (selective current year on daily sync, all years on backfill)
+            if from_date is not None or to_date is not None:
+                written = store.parquet_export(Path(config.paths.parquet_dir))
+            else:
+                exp_year = latest.year if latest is not None else datetime.now().year
+                written = store.parquet_export(Path(config.paths.parquet_dir), year=exp_year)
             console.print(f"[green]parquet export: {len(written)} year file(s) -> "
                           f"{config.paths.parquet_dir}[/]")
             _seed_indices_from_cache(store, config)
@@ -150,15 +164,27 @@ def run_sync(ctx: click.Context, from_date: datetime | None,
 def _run_latest(client: NSEHttpClient, store: MarketStore, raw_dir: Path,
                 force: bool) -> None:
     latest_db = store.latest_date()
-    if latest_db is not None:
-        console.print(f"[green]{latest_db}: already present in daily_bars "
-                      f"(use --force to re-download, or --from/--to to backfill)[/]")
-        return
     day = _latest_trading_day(client, raw_dir)
     if day is None:
         console.print("[red]No bhavcopy available in the last "
                       f"{MAX_HOLIDAY_LOOKBACK} business days.[/]")
         raise SystemExit(1)
+
+    if latest_db is not None and latest_db >= day and not force:
+        console.print(f"[green]{latest_db}: already up to date with latest NSE trading day "
+                      f"(use --force to re-download, or --from/--to to backfill)[/]")
+        return
+
+    # If DB is behind by multiple days, catch up the missing range
+    if latest_db is not None and latest_db < day and not force:
+        delta_start = latest_db + timedelta(days=1)
+        console.print(f"Catching up missing daily bars from {delta_start} to {day} ...")
+        _run_backfill(client, store, raw_dir,
+                      datetime.combine(delta_start, datetime.min.time()),
+                      datetime.combine(day, datetime.min.time()),
+                      force=False)
+        return
+
     with Progress(SpinnerColumn(), TextColumn("{task.description}"),
                   console=console) as progress:
         task = progress.add_task(f"Syncing {day} ...", total=None)
@@ -223,6 +249,7 @@ def _run_backfill(client: NSEHttpClient, store: MarketStore, raw_dir: Path,
         if mto_pending:
             console.print(f"MTO backfill for {len(mto_pending)} day(s) with missing "
                           "delivery data ...")
+            mto_frames: list[pd.DataFrame] = []
             with Progress(SpinnerColumn(), BarColumn(),
                           TextColumn("{task.percentage:>3.0f}%"),
                           console=console) as progress:
@@ -237,15 +264,17 @@ def _run_backfill(client: NSEHttpClient, store: MarketStore, raw_dir: Path,
                         except Exception:  # noqa: BLE001
                             mto = None
                         if mto is not None:
-                            frame = mto[["symbol", "date", "deliverable_qty", "delivery_pct"]]
-                            store.con.register("_mto_join", frame)
-                            store.con.execute("""
-                                UPDATE daily_bars b SET deliverable_qty = m.deliverable_qty,
-                                       delivery_pct = m.delivery_pct
-                                FROM _mto_join m
-                                WHERE b.symbol = m.symbol AND b.date = m.date""")
-                            store.con.unregister("_mto_join")
+                            mto_frames.append(mto[["symbol", "date", "deliverable_qty", "delivery_pct"]])
                         progress.advance(task)
+            if mto_frames:
+                combined_mto = pd.concat(mto_frames, ignore_index=True)
+                store.con.register("_mto_join", combined_mto)
+                store.con.execute("""
+                    UPDATE daily_bars b SET deliverable_qty = m.deliverable_qty,
+                           delivery_pct = m.delivery_pct
+                    FROM _mto_join m
+                    WHERE b.symbol = m.symbol AND b.date = m.date""")
+                store.con.unregister("_mto_join")
 
 
 def _seed_indices_from_cache(store: MarketStore, config) -> None:

@@ -70,6 +70,15 @@ def test_env_overrides(pkg, monkeypatch):
     assert str(cfg.paths.duckdb_path).replace("\\", "/") == "data/db/other.duckdb"
 
 
+def test_env_override_base_capital_only(pkg, monkeypatch):
+    """Overriding only BASE_CAPITAL automatically rebalances slots and tranches without error."""
+    monkeypatch.setenv("NSE_CASH_CAPITAL__BASE_CAPITAL", "1000000")
+    cfg = pkg.load_config()
+    assert cfg.capital.base_capital == 1_000_000.0
+    assert cfg.capital.slot_capital == 250_000.0
+    assert cfg.capital.tranche_capital == 125_000.0
+
+
 def test_domain_enums():
     from nse_cash.core.types import (ExitReason, MarketRegimeState, SeriesType,
                                      SetupID, TrancheID, TrancheState)
