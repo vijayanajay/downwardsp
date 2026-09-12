@@ -123,6 +123,40 @@ def test_classify_action_expanded_and_ncrps_filtering():
     # Preference shares / debentures must be excluded from common equity bonus adjustments
     assert classify_action("Scheme Of Arrangement - Bonus Ncrps 4:1")[0] is None
     assert classify_action("BONUS 1:1 PREFERENCE SHARES")[0] is None
+    # Demergers and spin-offs
+    assert classify_action("DEMERGER OF FINANCIAL SERVICES")[0] == "DEMERGER"
+    assert classify_action("SPIN-OFF OF PHARMA BUSINESS")[0] == "DEMERGER"
+
+
+def test_apply_adjustments_with_explicit_demerger_factor():
+    """Verify that an explicit adjustment_factor (e.g. 0.9118 for a spin-off/demerger) is applied directly."""
+    bars = pd.DataFrame({
+        "date": [date(2023, 7, 19), date(2023, 7, 20)],
+        "open": [2800.0, 2550.0], "high": [2850.0, 2600.0],
+        "low": [2780.0, 2540.0], "close": [2840.0, 2580.0],
+        "volume": [5000000, 8000000], "deliverable_qty": [2500000, 4000000],
+    })
+    actions = pd.DataFrame({
+        "ex_date": [date(2023, 7, 20)], "action_type": ["DEMERGER"],
+        "ratio_a": [1.0], "ratio_b": [1.0],
+        "adjustment_factor": [0.9118],
+    })
+    out = apply_adjustments(bars, actions)
+    assert out.loc[0, "close_adj"] == pytest.approx(2840.0 * 0.9118)
+    assert out.loc[1, "close_adj"] == pytest.approx(2580.0)
+    assert out.loc[0, "volume_adj"] == pytest.approx(5000000 / 0.9118)
+
+
+def test_load_seed_corporate_actions():
+    """Verify loading curated offline seed corporate actions."""
+    from nse_cash.data.corporate_actions import load_seed_corporate_actions
+    df = load_seed_corporate_actions()
+    assert df is not None
+    assert not df.empty
+    assert "RELIANCE" in set(df["symbol"])
+    assert "TCS" in set(df["symbol"])
+    rel = df[(df["symbol"] == "RELIANCE") & (df["action_type"] == "DEMERGER")].iloc[0]
+    assert rel["adjustment_factor"] == pytest.approx(0.9118)
 
 
 # ---------------------------------------------------------------------------

@@ -132,6 +132,25 @@ def test_parse_ind_close_real_nse_format():
     assert not pd.isna(n50["close"])
 
 
+def test_parse_ind_close_historical_aliases():
+    """Verify that historical S&P / CNX index brandings (pre-Nov 2015) normalize properly."""
+    from nse_cash.data.indices import _parse_ind_close
+    sample_pre_2015 = (
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value,Volume\n"
+        "CNX NIFTY,15-01-2013,6010.5,6050.2,5990.1,6035.8,1234567\n"
+        "S&P CNX 500,15-01-2013,4850.0,4890.0,4840.0,4880.5,9876543\n"
+        "CNX MIDCAP,15-01-2013,7500.0,7550.0,7480.0,7520.0,1111111\n"
+    )
+    df = _parse_ind_close(sample_pre_2015, date(2013, 1, 15))
+    assert len(df) == 2
+    names = set(df["index_name"])
+    assert names == {"NIFTY 50", "NIFTY 500"}
+    n50 = df[df["index_name"] == "NIFTY 50"].iloc[0]
+    assert n50["close"] == pytest.approx(6035.8)
+    n500 = df[df["index_name"] == "NIFTY 500"].iloc[0]
+    assert n500["close"] == pytest.approx(4880.5)
+
+
 # ---------------------------------------------------------------------------
 # MTO delivery
 # ---------------------------------------------------------------------------

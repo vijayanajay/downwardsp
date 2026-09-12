@@ -35,26 +35,31 @@ def apply_adjustments(bars: pd.DataFrame, actions: pd.DataFrame) -> pd.DataFrame
 
     bars:  sorted ascending by date, columns open/high/low/close/volume,
            deliverable_qty.
-    actions: DataFrame with ex_date, ratio_a, ratio_b (this symbol only).
+    actions: DataFrame with ex_date, ratio_a, ratio_b, and optional adjustment_factor.
     Returns bars with open_adj..delivery_adj populated.
     """
     out = bars.copy()
     n = len(out)
     if n == 0:
         return out
-    dates = pd.to_datetime(out["date"])
+    dates = pd.to_datetime(out["date"]).dt.date
 
     af = pd.Series(1.0, index=out.index)
     if not actions.empty:
         acts = actions.dropna(subset=["ex_date"]).copy()
-        acts["ex_date"] = pd.to_datetime(acts["ex_date"])
+        acts["ex_date"] = pd.to_datetime(acts["ex_date"]).dt.date
         # Group by ex-date and compute cumulative factor per ex-date
         # so simultaneous actions (e.g. split + bonus) multiply rather than dropping one
         acts = acts.sort_values("ex_date")
         for ex_date, group in acts.groupby("ex_date"):
             cum_group_factor = 1.0
             for _, row in group.iterrows():
-                factor = adjustment_factor(float(row["ratio_a"]), float(row["ratio_b"]))
+                # If explicit adjustment_factor is provided (e.g. for demergers or special distributions), use it
+                explicit_af = row.get("adjustment_factor")
+                if pd.notna(explicit_af) and float(explicit_af) > 0:
+                    factor = float(explicit_af)
+                else:
+                    factor = adjustment_factor(float(row["ratio_a"]), float(row["ratio_b"]))
                 cum_group_factor *= factor
             af = af.where(dates >= ex_date, af * cum_group_factor)
 
@@ -85,7 +90,7 @@ def refresh_adjustments(store) -> int:
     """
     con: duckdb.DuckDBPyConnection = store.con
 
-    # Bulk identity pass 1: symbols with no split/bonus actions
+    # Bulk identity pass 1: symbols with no split/bonus/demerger actions
     con.execute("""
         UPDATE daily_bars b SET
             open_adj = b.open, high_adj = b.high, low_adj = b.low,
@@ -93,7 +98,7 @@ def refresh_adjustments(store) -> int:
             delivery_adj = b.deliverable_qty
         WHERE b.close_adj IS NULL AND b.symbol NOT IN (
             SELECT DISTINCT symbol FROM corporate_actions
-            WHERE action_type IN ('SPLIT', 'BONUS'))
+            WHERE action_type IN ('SPLIT', 'BONUS', 'DEMERGER'))
     """)
 
     # Bulk identity pass 2: symbols with actions where new bars are after latest ex-date (AF = 1.0)
@@ -105,20 +110,20 @@ def refresh_adjustments(store) -> int:
         WHERE b.close_adj IS NULL
           AND b.date >= (
               SELECT max(ca.ex_date) FROM corporate_actions ca
-              WHERE ca.symbol = b.symbol AND ca.action_type IN ('SPLIT', 'BONUS')
+              WHERE ca.symbol = b.symbol AND ca.action_type IN ('SPLIT', 'BONUS', 'DEMERGER')
           )
     """)
 
     # Per-symbol pass: only symbols with unapplied actions or missing pre-ex adjustments
     symbols = [r[0] for r in con.execute("""
         SELECT DISTINCT symbol FROM corporate_actions
-        WHERE action_type IN ('SPLIT', 'BONUS') AND adjustment_factor IS NULL
+        WHERE action_type IN ('SPLIT', 'BONUS', 'DEMERGER') AND adjustment_factor IS NULL
         UNION
         SELECT DISTINCT b.symbol FROM daily_bars b
         JOIN (
             SELECT symbol, max(ex_date) AS max_ex
             FROM corporate_actions
-            WHERE action_type IN ('SPLIT', 'BONUS')
+            WHERE action_type IN ('SPLIT', 'BONUS', 'DEMERGER')
             GROUP BY symbol
         ) ca ON b.symbol = ca.symbol
         WHERE b.close_adj IS NULL AND b.date < ca.max_ex
@@ -134,8 +139,8 @@ def refresh_adjustments(store) -> int:
             FROM daily_bars WHERE symbol = ? ORDER BY date
         """, [symbol]).df()
         actions = con.execute("""
-            SELECT ex_date, ratio_a, ratio_b FROM corporate_actions
-            WHERE symbol = ? AND action_type IN ('SPLIT', 'BONUS')
+            SELECT ex_date, ratio_a, ratio_b, adjustment_factor FROM corporate_actions
+            WHERE symbol = ? AND action_type IN ('SPLIT', 'BONUS', 'DEMERGER')
             ORDER BY ex_date
         """, [symbol]).df()
         if bars.empty:
@@ -148,16 +153,18 @@ def refresh_adjustments(store) -> int:
                 low_adj = a.low_adj, close_adj = a.close_adj,
                 volume_adj = a.volume_adj, delivery_adj = a.delivery_adj
             FROM _adj a
-            WHERE b.symbol = ? AND b.date = a.date
+            WHERE b.symbol = ? AND b.date = a.date::DATE
         """, [symbol])
         con.unregister("_adj")
-        # Record applied factors for auditability
-        if not actions.empty:
-            con.execute("""
-                UPDATE corporate_actions SET adjustment_factor =
-                    ratio_b / (ratio_a + ratio_b)
-                WHERE symbol = ? AND action_type IN ('SPLIT', 'BONUS')
-            """, [symbol])
+
+    # Bulk update applied factors for auditability
+    con.execute("""
+        UPDATE corporate_actions SET adjustment_factor =
+            CASE WHEN adjustment_factor IS NOT NULL AND adjustment_factor > 0 THEN adjustment_factor
+                 WHEN ratio_a + ratio_b > 0 THEN ratio_b / (ratio_a + ratio_b)
+                 ELSE 1.0 END
+        WHERE action_type IN ('SPLIT', 'BONUS', 'DEMERGER') AND adjustment_factor IS NULL
+    """)
 
     log.info("adjuster: %d symbols adjusted", len(symbols))
     return len(symbols)

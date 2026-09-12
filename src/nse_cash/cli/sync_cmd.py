@@ -19,7 +19,7 @@ import click
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from nse_cash.data.bhavcopy import fetch_bhavcopy, join_delivery
-from nse_cash.data.corporate_actions import fetch_corporate_actions
+from nse_cash.data.corporate_actions import fetch_corporate_actions, load_seed_corporate_actions
 from nse_cash.data.delivery import fetch_delivery
 from nse_cash.data.fetcher import NSEHttpClient
 from nse_cash.data.indices import fetch_indices_for_date, ingest_from_local_cache
@@ -72,25 +72,35 @@ def _persist_day(store: MarketStore, result: dict) -> str:
 
 def _sync_corporate_actions(client: NSEHttpClient, store: MarketStore,
                             from_date=None, to_date=None) -> int:
-    """Fetch corporate actions (upcoming snapshot, or monthly pages over a
-    backfill range) and upsert normalized records."""
+    """Load offline seed actions and fetch live actions (capping historical range to avoid API spam)."""
+    total = 0
+    seed_df = load_seed_corporate_actions()
+    if seed_df is not None and not seed_df.empty:
+        total += store.upsert_corporate_actions(seed_df)
+
     if from_date is None and to_date is None:
         df = fetch_corporate_actions(client)
-        if df is None or df.empty:
-            return 0
-        return store.upsert_corporate_actions(df)
+        if df is not None and not df.empty:
+            total += store.upsert_corporate_actions(df)
+        return total
 
-    # Historical backfill: page month-by-month (API caps responses per call)
+    # Historical backfill: live NSE JSON API only retains the last ~365 days of events.
+    # We query the live API only within the valid window to prevent hundreds of 403/404s.
     start = from_date.date() if hasattr(from_date, "date") else from_date
     end = to_date.date() if hasattr(to_date, "date") else to_date
-    total = 0
-    month = start.replace(day=1)
+    today = datetime.now().date()
+    api_cutoff = today - timedelta(days=365)
+    api_start = max(start, api_cutoff)
+    if api_start > end:
+        return total
+
+    month = api_start.replace(day=1)
     while month <= end:
         if month.month == 12:
             nxt = month.replace(year=month.year + 1, month=1)
         else:
             nxt = month.replace(month=month.month + 1)
-        m_start, m_end = max(start, month), min(end, nxt - timedelta(days=1))
+        m_start, m_end = max(api_start, month), min(end, nxt - timedelta(days=1))
         df = fetch_corporate_actions(client, m_start, m_end)
         if df is not None and not df.empty:
             total += store.upsert_corporate_actions(df)

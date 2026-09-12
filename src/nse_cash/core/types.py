@@ -59,6 +59,7 @@ class ActionType(str, Enum):
     BONUS = "BONUS"
     RIGHTS = "RIGHTS"
     DIVIDEND = "DIVIDEND"
+    DEMERGER = "DEMERGER"
 
 
 class DailyBar(BaseModel):
