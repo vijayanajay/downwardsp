@@ -81,7 +81,8 @@ class MarketStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.con = duckdb.connect(str(self.db_path), read_only=read_only)
-        self._ensure_schema()
+        if not read_only:
+            self._ensure_schema()
 
     def _ensure_schema(self) -> None:
         for ddl in _SCHEMA.values():

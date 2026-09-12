@@ -56,7 +56,8 @@ def sync(ctx: click.Context, from_date, to_date, force: bool) -> None:
 @click.pass_context
 def scan(ctx: click.Context, trade_date) -> None:
     """Run the 4-stage funnel, rank S_runner, output the 10:00 AM Action Sheet."""
-    _placeholder("scan")
+    from nse_cash.cli.scan_cmd import run_scan
+    run_scan(ctx, trade_date)
 
 
 @cli.command("ledger")

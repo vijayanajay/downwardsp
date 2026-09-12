@@ -250,28 +250,28 @@ Implement Funnel Stage 1 (Macro Regime), Stage 2 (Governance & Liquidity), and S
 
 #### To-Do List
 
-- [ ] **4.1 Macro Market Regime Engine (`src/nse_cash/funnel/market_regime.py`)**
-  - [ ] Compute 20-day Exponential Moving Average ($\text{EMA}_{20}$) of NIFTY 50 Close.
-  - [ ] Macro Condition 1: Check if NIFTY 50 $\text{Close}_t > \text{EMA}_{20}(\text{Close})$.
-  - [ ] Compute NIFTY 500 50-day Simple Moving Average ($\text{SMA}_{50}$) for all constituent stocks.
-  - [ ] Compute Market Breadth:
+- [x] **4.1 Macro Market Regime Engine (`src/nse_cash/funnel/market_regime.py`)**
+  - [x] Compute 20-day Exponential Moving Average ($\text{EMA}_{20}$) of NIFTY 50 Close.
+  - [x] Macro Condition 1: Check if NIFTY 50 $\text{Close}_t > \text{EMA}_{20}(\text{Close})$.
+  - [x] Compute NIFTY 500 50-day Simple Moving Average ($\text{SMA}_{50}$) for all constituent stocks.
+  - [x] Compute Market Breadth:
     $$\text{Breadth}(t) = \frac{\text{Count of NIFTY 500 stocks with } \text{Close}_t > \text{SMA}_{50}(\text{Close})}{\text{Total Active NIFTY 500 stocks}} \times 100\%$$
-  - [ ] Macro Condition 2: Check if $\text{Breadth}(t) > 50.0\%$.
-  - [ ] Regime Decision Logic:
+  - [x] Macro Condition 2: Check if $\text{Breadth}(t) > 50.0\%$.
+  - [x] Regime Decision Logic:
     - If NIFTY 50 $\le \text{EMA}_{20}$ OR $\text{Breadth} \le 50.0\% \implies$ `DEFENSIVE_CASH` (100% Cash switch: zero new swing entries generated; existing trades managed to their stop/target/stall exits).
     - If both pass $\implies$ `OFFENSIVE_LONG` (Allow Stage 3 setup evaluations).
 
-- [ ] **4.2 Sector Classification & Diversification Gate (`src/nse_cash/funnel/sector_gate.py`)**
-  - [ ] Ingest and maintain standard NSE Sector / Industry classification mapping (`data/nse_sectors.json`): e.g., Auto, Banking, FMCG, IT, Metals, Pharma, Energy, etc.
-  - [ ] Sector Constraint Rule: Maximum **1 open position per Sector** across the 4 concurrent portfolio slots.
-  - [ ] When evaluating candidates, reject any candidate whose sector is already occupied by an active trade.
+- [x] **4.2 Sector Classification & Diversification Gate (`src/nse_cash/funnel/sector_gate.py`)**
+  - [x] Ingest and maintain standard NSE Sector / Industry classification mapping (`data/nse_sectors.json`): e.g., Auto, Banking, FMCG, IT, Metals, Pharma, Energy, etc.
+  - [x] Sector Constraint Rule: Maximum **1 open position per Sector** across the 4 concurrent portfolio slots.
+  - [x] When evaluating candidates, reject any candidate whose sector is already occupied by an active trade.
 
-- [ ] **4.3 Pre-Entry Structural Risk & Capacity Controller (`src/nse_cash/funnel/stage4_gate.py`)**
-  - [ ] Portfolio Capacity Check: Verify number of open slots $< 4$. If all 4 slots are occupied, abstain from new entries.
-  - [ ] Pre-Entry Max-Risk Gate:
+- [x] **4.3 Pre-Entry Structural Risk & Capacity Controller (`src/nse_cash/funnel/stage4_gate.py`)**
+  - [x] Portfolio Capacity Check: Verify number of open slots $< 4$. If all 4 slots are occupied, abstain from new entries.
+  - [x] Pre-Entry Max-Risk Gate:
     $$\text{Structural\_Risk\_Pct} = \frac{\text{Entry\_Ref} - \text{Structural\_Stop}}{\text{Entry\_Ref}} \times 100\%$$
     - If $\text{Structural\_Risk\_Pct} > 2.20\% \implies$ Candidate is **strictly disqualified**.
-  - [ ] 10:00 AM Gap Invalidation Rule:
+  - [x] 10:00 AM Gap Invalidation Rule:
     $$\text{If } \text{Price}_{\text{10:00 AM}} > \text{Close}_T \times 1.012 \implies \text{Signal Cancelled (Reject trade)}$$
 
 ---
