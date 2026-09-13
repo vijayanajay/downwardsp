@@ -1,9 +1,9 @@
-"""`nse-cash scan` implementation (Phase 4 / Phase 7.2).
+"""`nse-cash scan` implementation (Phase 4 / Phase 5 / Phase 7.2).
 
-Executes the 4-Stage Filter Funnel:
-  Stage 1: Macro Market Regime Gate (NIFTY 50 20-EMA & NIFTY 500 Breadth > 50%)
-  Stage 2: Liquidity, Governance & Event Risk Gate (SEBI ASM/GSM, Circuits, Board Meetings)
-  Stage 4: Sector Diversification & Portfolio Capacity Controller
+Renders the output of the shared decision pipeline
+(`nse_cash.funnel.pipeline.decide_entries`) as the 10:00 AM Dual-GTT Action
+Sheet. The funnel logic lives in the pipeline module so `scan` and the Phase 6
+backtest engine replay the exact same decisions.
 """
 
 from __future__ import annotations
@@ -18,13 +18,10 @@ import pandas as pd
 from rich.panel import Panel
 from rich.table import Table
 
-from nse_cash.core.governance import excluded_symbols
 from nse_cash.core.logger import console
-from nse_cash.core.types import MarketRegimeState
+from nse_cash.core.types import MarketRegimeState, SetupID
 from nse_cash.data.storage import MarketStore
-from nse_cash.funnel.market_regime import evaluate_market_regime
-from nse_cash.funnel.sector_gate import SectorGate
-from nse_cash.funnel.stage4_gate import check_portfolio_capacity
+from nse_cash.funnel.pipeline import decide_entries
 
 log = logging.getLogger("nse_cash.scan")
 
@@ -56,19 +53,21 @@ def run_scan(ctx: click.Context, trade_date_opt: Optional[Date]) -> None:
 def _execute_funnel_scan(store: MarketStore, config, target_date: Date) -> None:
     console.rule(f"[bold cyan]NSE Cash Swing System — 4-Stage Filter Funnel ({target_date})[/]")
 
+    result = decide_entries(store, config, target_date)
+    regime = result.regime
+
     # =========================================================================
     # STAGE 1: MACRO MARKET REGIME GATE
     # =========================================================================
-    regime = evaluate_market_regime(store, as_of_date=target_date)
-
-    table = Table(title=f"Stage 1: Macro Market Regime Gate ({target_date})", title_style="bold")
+    table = Table(title=f"Stage 1: Macro Market Regime Gate ({target_date})",
+                  title_style="bold")
     table.add_column("Indicator", style="bold")
     table.add_column("Current Value", justify="right")
     table.add_column("Threshold / Condition", justify="right")
     table.add_column("Status", justify="center")
 
-    # NIFTY 50 20-EMA row
-    nifty_diff = ((regime.nifty50_close - regime.nifty50_ema20) / regime.nifty50_ema20) * 100.0
+    nifty_diff = ((regime.nifty50_close - regime.nifty50_ema20)
+                  / regime.nifty50_ema20) * 100.0
     nifty_status = "[bold green]PASS[/]" if regime.nifty50_above_ema else "[bold red]FAIL[/]"
     table.add_row(
         "NIFTY 50 vs 20-EMA",
@@ -77,7 +76,6 @@ def _execute_funnel_scan(store: MarketStore, config, target_date: Date) -> None:
         nifty_status,
     )
 
-    # NIFTY 500 Breadth row
     breadth_status = "[bold green]PASS[/]" if regime.breadth_above_50 else "[bold red]FAIL[/]"
     table.add_row(
         "NIFTY 500 Breadth (>50-day SMA)",
@@ -86,14 +84,12 @@ def _execute_funnel_scan(store: MarketStore, config, target_date: Date) -> None:
         breadth_status,
     )
 
-    # State row
     state_colored = (
         "[bold green]OFFENSIVE_LONG[/]"
         if regime.state == MarketRegimeState.OFFENSIVE_LONG
         else "[bold red]DEFENSIVE_CASH[/]"
     )
     table.add_row("Regime Decision", state_colored, "Both Must Pass", state_colored)
-
     console.print(table)
 
     if regime.state == MarketRegimeState.DEFENSIVE_CASH:
@@ -112,20 +108,76 @@ def _execute_funnel_scan(store: MarketStore, config, target_date: Date) -> None:
     # =========================================================================
     console.print("[bold green]✔ Stage 1 Passed:[/] Market regime is [bold green]OFFENSIVE_LONG[/]. Proceeding to Stage 2.")
 
-    excluded = excluded_symbols(store.con, target_date)
     console.print(
-        f"[cyan]Stage 2 Governance Gate:[/] [yellow]{len(excluded)}[/] symbols excluded "
+        f"[cyan]Stage 2 Governance Gate:[/] [yellow]{result.excluded_count}[/] symbols excluded "
         f"(SEBI ASM/GSM lists, circuit hits in last 3 sessions, or board meetings within 3 days)."
     )
 
     # =========================================================================
-    # STAGE 4: CAPACITY & SECTOR DIVERSIFICATION
+    # STAGE 3 & 4 via the shared pipeline; this module only renders.
     # =========================================================================
-    sector_gate = SectorGate()
-    cap_ok, cap_msg = check_portfolio_capacity(occupied_slots=0, num_slots=config.capital.num_slots)
+    _render_action_sheet(config, result, target_date)
 
-    console.print(f"[cyan]Stage 4 Pre-Entry Gate:[/] {cap_msg}. Max 1 trade per sector rule enforced.")
-    console.print(
-        "[dim]Note: Stage 3 Quantitative Setups (VCP Squeeze, Rubber-Band, RS Base, Anchor Retest, "
-        "Residual Momentum, and S_runner scoring) will be active in Phase 5.[/]"
+
+def _render_action_sheet(config, result, target_date: Date) -> None:
+    """10:00 AM Action Sheet: the pipeline's accepted candidates."""
+    console.rule(f"[bold cyan]Stage 3 & 4: Candidates, S_runner & Action Sheet ({target_date})[/]")
+
+    accepted = result.accepted
+    if not result.candidates:
+        console.print("[yellow]No setup matched any universe stock today "
+                      "(zero new entries; 100% cash on Stage 3).[/]")
+        return
+
+    slot_capital = config.capital.slot_capital
+    table = Table(title="10:00 AM Action Sheet — Dual-GTT Orders", title_style="bold")
+    table.add_column("Symbol", style="bold")
+    table.add_column("Setup")
+    table.add_column("S_runner", justify="right")
+    table.add_column("Entry Ref", justify="right")
+    table.add_column("Max Entry (+1.2%)", justify="right")
+    table.add_column("T1 Target", justify="right")
+    table.add_column("T2 Target", justify="right")
+    table.add_column("Struct Stop", justify="right")
+    table.add_column("Qty (T1/T2)", justify="right")
+
+    max_gap = config.risk.max_gap_entry
+    for cand, _dec in accepted:
+        qty = int(slot_capital // cand.entry_ref)
+        t1_qty, t2_qty = qty // 2, qty - qty // 2
+        table.add_row(
+            cand.symbol,
+            cand.setup.value.replace("SETUP_", "S").replace("_", " ").title(),
+            f"{cand.s_runner:.2f}",
+            f"₹{cand.entry_ref:,.2f}",
+            f"₹{cand.entry_ref * (1 + max_gap):,.2f}",
+            f"₹{cand.entry_ref * (1 + cand.tranche1_target_pct):,.2f}",
+            f"₹{cand.entry_ref * (1 + cand.tranche2_target_pct):,.2f}",
+            f"₹{cand.structural_stop:,.2f} ({-cand.structural_stop_pct * 100:.2f}%)",
+            f"{qty} ({t1_qty}/{t2_qty})",
+        )
+    console.print(table)
+
+    if result.rejected:
+        shown = 0
+        for cand, reason in result.rejected:
+            if shown >= 6:
+                console.print(f"[dim]... and {len(result.rejected) - shown} more rejections[/]")
+                break
+            console.print(f"[dim]rejected {cand.symbol} ({cand.setup.value}): {reason}[/]")
+            shown += 1
+
+    playbook = (
+        "1. At 10:00 AM: verify price <= Max Entry. Place Buy Limit for full Qty.\n"
+        "2. On fill: place TWO independent GTT OCO sells:\n"
+        "   GTT 1 (T1): target = T1 Target, stop = Structural Stop.\n"
+        "   GTT 2 (T2): target = T2 Target, stop = Structural Stop.\n"
+        "3. EOD 3:20 PM: if GTT 1 filled, modify GTT 2 stop to Breakeven (Entry).\n"
+        "4. Stall rule: Day T+2 3:15 PM gain < +0.80% -> cancel GTTs, sell at market.\n"
+        "5. Day 5 3:15 PM: exit anything remaining."
     )
+    console.print(Panel(playbook, title="Manual Dual-GTT Playbook (Zerodha Kite)",
+                        border_style="green", expand=False))
+    if any(c.setup is SetupID.SETUP_4_ANCHOR_RETEST for c, _ in accepted):
+        console.print("[dim]Setup 4 lines carry a tighter -2.00% stop gate; "
+                      "all others -2.20%.[/]")

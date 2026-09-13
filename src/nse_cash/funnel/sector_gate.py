@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 log = logging.getLogger("nse_cash.sector_gate")
 
+UNKNOWN_SECTOR = "Unknown"  # sentinel for symbols absent from the sector map
+
 DEFAULT_SECTORS_FILE = Path("data/nse_sectors.json")
 CONFIG_SECTORS_FILE = Path("config/nse_sectors.json")
 
@@ -117,15 +119,15 @@ class SectorGate:
         clean_sym = symbol.strip().upper().removesuffix(".NS")
         rec = self._sectors.get(clean_sym)
         if rec and isinstance(rec, dict):
-            return rec.get("sector") or rec.get("industry") or "Unknown"
+            return rec.get("sector") or rec.get("industry") or UNKNOWN_SECTOR
         if rec and isinstance(rec, str):
             return rec
-        return BUILTIN_SECTOR_FALLBACK.get(clean_sym, "Unknown")
+        return BUILTIN_SECTOR_FALLBACK.get(clean_sym, UNKNOWN_SECTOR)
 
     def is_sector_available(self, symbol: str, active_sectors: Set[str]) -> bool:
         """Check if symbol's sector is unoccupied by active positions."""
         sector = self.get_sector(symbol)
-        if sector == "Unknown":
+        if sector == UNKNOWN_SECTOR:
             # An unknown sector cannot match an existing known sector
             return True
         return sector not in active_sectors
@@ -165,7 +167,7 @@ class SectorGate:
             sector = self.get_sector(str(sym))
             existing = claimed_sectors.get(sector, [])
 
-            if sector != "Unknown" and len(existing) >= max_per_sector:
+            if sector != UNKNOWN_SECTOR and len(existing) >= max_per_sector:
                 first_occupant = existing[0]
                 if first_occupant == "ACTIVE_TRADE":
                     reason = f"Sector '{sector}' already occupied by an active portfolio trade"
@@ -174,7 +176,7 @@ class SectorGate:
                 rejected.append((cand, reason))
             else:
                 accepted.append(cand)
-                if sector != "Unknown":
+                if sector != UNKNOWN_SECTOR:
                     claimed_sectors.setdefault(sector, []).append(str(sym))
 
         return accepted, rejected

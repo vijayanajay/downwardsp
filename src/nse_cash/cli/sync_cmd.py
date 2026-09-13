@@ -157,6 +157,10 @@ def run_sync(ctx: click.Context, from_date: datetime | None,
                     console.print(f"[green]PIT universe {latest}: {len(membership)} symbols[/]")
                 excluded = apply_governance_filters(store, latest, client)
                 console.print(f"[green]governance exclusions for {latest}: {len(excluded)}[/]")
+                # Phase 5: keep the shared features table warm for scan/backtest
+                from nse_cash.setups.features import refresh_features
+                n_feat = refresh_features(store, latest)
+                console.print(f"[green]features refreshed for {latest}: {n_feat} rows[/]")
             # Parquet export (selective current year on daily sync, all years on backfill)
             if from_date is not None or to_date is not None:
                 written = store.parquet_export(Path(config.paths.parquet_dir))

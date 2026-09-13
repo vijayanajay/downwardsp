@@ -116,6 +116,7 @@ class CandidateSignal(BaseModel):
     entry_ref: float                 # raw Close_T
     structural_stop: float           # raw price level
     structural_stop_pct: float       # (entry - stop) / entry
+    max_stop_pct: float = 0.022      # setup's own stop gate (Setup 4: 2.00%)
     tranche1_target_pct: float = 0.02
     tranche2_target_pct: float = 0.06
     s_runner: float = 0.0

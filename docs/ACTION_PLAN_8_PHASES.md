@@ -283,78 +283,90 @@ Implement the 5 deterministic quantitative trading setups from `algos.md`, the v
 
 #### To-Do List
 
-- [ ] **5.1 Vectorized Indicator & Microstructure Features Engine (`src/nse_cash/setups/features.py`)**
-  - [ ] Trend Indicators: $\text{SMA}_{200}(\text{Close})$, $\text{SMA}_{50}(\text{Close})$, $\text{SMA}_{20}(\text{Close})$, $\text{Slope}(\text{SMA}_{200})$.
-  - [ ] Volume & Delivery Moving Averages: $\text{SMA}_{20}(\text{Volume})$, $\text{SMA}_{20}(\text{Delivery\_Qty})$.
-  - [ ] Standardized Delivery Volume Z-Score:
+- [x] **5.1 Vectorized Indicator & Microstructure Features Engine (`src/nse_cash/setups/features.py`)**
+  - [x] Trend Indicators: $\text{SMA}_{200}(\text{Close})$, $\text{SMA}_{50}(\text{Close})$, $\text{SMA}_{20}(\text{Close})$, $\text{Slope}(\text{SMA}_{200})$.
+  - [x] Volume & Delivery Moving Averages: $\text{SMA}_{20}(\text{Volume})$, $\text{SMA}_{20}(\text{Delivery\_Qty})$.
+  - [x] Standardized Delivery Volume Z-Score:
     $$Z_{\text{Delivery}}(t) = \frac{\text{Delivery\_Qty}_t - \text{SMA}_{20}(\text{Delivery\_Qty})}{\sigma_{20}(\text{Delivery\_Qty})}$$
-  - [ ] 5-day Parkinson Volatility ($PV_5$):
+  - [x] 5-day Parkinson Volatility ($PV_5$):
     $$\text{PV}_5(t) = \sqrt{ \frac{1}{4 \ln 2 \cdot 5} \sum_{k=0}^{4} \left( \ln \frac{\text{High}_{t-k}}{\text{Low}_{t-k}} \right)^2 }$$
-  - [ ] Parkinson Percentile Rank ($\text{PV}_{\text{Percentile}}$): Rank of $\text{PV}_5(t)$ within its rolling 60-day historical distribution ($0.0 \text{ to } 1.0$).
-  - [ ] 2-Period RSI ($\text{RSI}(2)$) using Wilder's smoothing.
-  - [ ] Mansfield Relative Strength ($\text{RS}_{\text{Mansfield}}$) against NIFTY 500:
+  - [x] Parkinson Percentile Rank ($\text{PV}_{\text{Percentile}}$): Rank of $\text{PV}_5(t)$ within its rolling 60-day historical distribution ($0.0 \text{ to } 1.0$).
+  - [x] 2-Period RSI ($\text{RSI}(2)$) using Wilder's smoothing.
+  - [x] Mansfield Relative Strength ($\text{RS}_{\text{Mansfield}}$) against NIFTY 500:
     $$\text{RS}_i(t) = \left( \frac{\text{Close}_i(t) / \text{NIFTY500}(t)}{\text{SMA}_{50}(\text{Close}_i / \text{NIFTY500})} - 1 \right) \times 100$$
     Compute cross-sectional percentile rank across the Top 500 universe ($\text{RS}_{\text{Percentile}}$).
-  - [ ] Rolling 36-day OLS Beta-Neutral Residual Alpha Regression:
+  - [x] Rolling 36-day OLS Beta-Neutral Residual Alpha Regression:
     $$R_i(t) = \alpha_i + \beta_i R_{\text{NIFTY50}}(t) + \epsilon_i(t)$$
     $$\text{iMOM}_i(t) = \frac{\sum_{k=0}^{20} \epsilon_i(t-k)}{\sigma_{36}(\epsilon_i)}$$
     Compute cross-sectional percentile rank across the Top 500 universe ($\text{iMOM}_{\text{Percentile}}$).
-  - [ ] Rolling 90-day Base High/Low, Breakout Resistance, and Support Levels.
+  - [x] Rolling 90-day Base High/Low, Breakout Resistance, and Support Levels. (+ prior-session low `prev_low` for Setup 1/5 stops.)
 
-- [ ] **5.2 Setup 1: Delivery Absorption & Volatility Contraction (VCP + Parkinson Squeeze) (`src/nse_cash/setups/setup1_vcp_squeeze.py`)**
-  - [ ] Secular Trend: $\text{Close}_t > \text{SMA}_{200}(\text{Close})$ AND $\text{SMA}_{50}(\text{Close}) > \text{SMA}_{200}(\text{Close})$.
-  - [ ] Accumulation Footprint:
+- [x] **5.2 Setup 1: Delivery Absorption & Volatility Contraction (VCP + Parkinson Squeeze) (`src/nse_cash/setups/catalog.py`, pure predicates)**
+  - [x] Secular Trend: $\text{Close}_t > \text{SMA}_{200}(\text{Close})$ AND $\text{SMA}_{50}(\text{Close}) > \text{SMA}_{200}(\text{Close})$.
+  - [x] Accumulation Footprint:
     - **Condition A (Single Shock):** In last 5 sessions, $\ge 1$ day with $\text{Delivery\_Qty} \ge 2.20 \times \text{SMA}_{20}(\text{Delivery\_Qty})$ AND $\text{Close} > \text{Open}$.
     - **OR Condition B (Iceberg):** $Z_{\text{Delivery}} \ge +1.50$ for $\ge 2$ of last 3 sessions.
-  - [ ] Volume Dry-Up: Day $T$ volume $\text{Volume}_T \le 0.65 \times \text{SMA}_{20}(\text{Volume})$.
-  - [ ] Volatility Squeeze: $(\text{High}_T - \text{Low}_T)/\text{Close}_T \le 0.015$ OR $\text{PV}_5 \le \text{Percentile}_{15}(\text{PV}_{60})$.
-  - [ ] Orders & Risk:
+  - [x] Volume Dry-Up: Day $T$ volume $\text{Volume}_T \le 0.65 \times \text{SMA}_{20}(\text{Volume})$.
+  - [x] Volatility Squeeze: $(\text{High}_T - \text{Low}_T)/\text{Close}_T \le 0.015$ OR $\text{PV}_5 \le \text{Percentile}_{15}(\text{PV}_{60})$.
+  - [x] Orders & Risk:
     - Structural Stop: $\min(\text{Low}_T, \text{Low}_{T-1})$ (enforce $\le 2.20\%$).
     - Tranche 1 (50% Qty): Target $+2.00\%$.
     - Tranche 2 (50% Qty): Target $+5.00\%$ to $+6.00\%$ (or Trailing Low).
 
-- [ ] **5.3 Setup 2: Secular Uptrend Rubber-Band Pullback (`src/nse_cash/setups/setup2_rubberband.py`)**
-  - [ ] Secular Trend: $\text{Close}_t > \text{SMA}_{200}(\text{Close})$ AND $\text{Slope}(\text{SMA}_{200}) > 0$.
-  - [ ] Consecutive Pullback: $\text{Close}_T < \text{Close}_{T-1} < \text{Close}_{T-2}$ (3 consecutive lower closes).
-  - [ ] Subdued Volume: $\text{Delivery\_Qty}_T \le 1.15 \times \text{SMA}_{20}(\text{Delivery\_Qty})$.
-  - [ ] Exhaustion: $\text{RSI}(2)_T \le 10.0$.
-  - [ ] Orders & Risk:
+- [x] **5.3 Setup 2: Secular Uptrend Rubber-Band Pullback (`src/nse_cash/setups/catalog.py`)**
+  - [x] Secular Trend: $\text{Close}_t > \text{SMA}_{200}(\text{Close})$ AND $\text{Slope}(\text{SMA}_{200}) > 0$.
+  - [x] Consecutive Pullback: $\text{Close}_T < \text{Close}_{T-1} < \text{Close}_{T-2}$ (3 consecutive lower closes).
+  - [x] Subdued Volume: $\text{Delivery\_Qty}_T \le 1.15 \times \text{SMA}_{20}(\text{Delivery\_Qty})$.
+  - [x] Exhaustion: $\text{RSI}(2)_T \le 10.0$.
+  - [x] Orders & Risk:
     - Structural Stop: Day $T$ Low $- 0.2\%$ (enforce $\le 2.20\%$).
     - Tranche 1 (50% Qty): Target $+1.80\%$.
     - Tranche 2 (50% Qty): Target $+3.50\%$.
 
-- [ ] **5.4 Setup 3: Relative Strength Base Consolidation (`src/nse_cash/setups/setup3_rs_base.py`)**
-  - [ ] Macro: NIFTY 50 $\text{Close} > \text{EMA}_{20}$.
-  - [ ] RS Leadership: $\text{RS}_{\text{Percentile}} \ge 0.95$ (Top 5th percentile of universe).
-  - [ ] Base Consolidation: High/Low range over past 5 sessions $\le 3.0\%$ AND $\text{Close}_T \ge 0.985 \times \text{52-Week High}$.
-  - [ ] Orders & Risk:
+- [x] **5.4 Setup 3: Relative Strength Base Consolidation (`src/nse_cash/setups/catalog.py`)**
+  - [x] Macro: NIFTY 50 $\text{Close} > \text{EMA}_{20}$.
+  - [x] RS Leadership: $\text{RS}_{\text{Percentile}} \ge 0.95$ (Top 5th percentile of universe).
+  - [x] Base Consolidation: High/Low range over past 5 sessions $\le 3.0\%$ AND $\text{Close}_T \ge 0.985 \times \text{52-Week High}$.
+  - [x] Orders & Risk:
     - Structural Stop: Low of 5-day base (enforce $\le 2.20\%$).
     - Tranche 1 (50% Qty): Target $+2.00\%$.
     - Tranche 2 (50% Qty): Target $+6.00\%$ (or Trailing Low).
 
-- [ ] **5.5 Setup 4: Multi-Month Base Breakout & Anchor Retest (`src/nse_cash/setups/setup4_anchor_retest.py`)**
-  - [ ] Breakout Confirmation: Stock broke above 90-day base resistance within last 3 to 7 sessions on $\text{Delivery\_Qty} \ge 2.0 \times \text{SMA}_{20}$.
-  - [ ] Support Retest: Day $T$ Low touches within $\pm 0.8\%$ of breakout level and holds above it.
-  - [ ] Dry-Up: $\text{Volume}_T \le 0.55 \times \text{SMA}_{20}(\text{Volume})$.
-  - [ ] Rejection Tail: $\text{Close}_T > \text{Open}_T$ AND lower shadow $\ge 40\%$ of total candle range $((\min(\text{Open}, \text{Close}) - \text{Low}) / (\text{High} - \text{Low}) \ge 0.40)$.
-  - [ ] Orders & Risk:
+- [x] **5.5 Setup 4: Multi-Month Base Breakout & Anchor Retest (`src/nse_cash/setups/catalog.py`)**
+  - [x] Breakout Confirmation: Stock broke above 90-day base resistance within last 3 to 7 sessions on $\text{Delivery\_Qty} \ge 2.0 \times \text{SMA}_{20}$.
+  - [x] Support Retest: Day $T$ Low touches within $\pm 0.8\%$ of breakout level and holds above it.
+  - [x] Dry-Up: $\text{Volume}_T \le 0.55 \times \text{SMA}_{20}(\text{Volume})$.
+  - [x] Rejection Tail: $\text{Close}_T > \text{Open}_T$ AND lower shadow $\ge 40\%$ of total candle range $((\min(\text{Open}, \text{Close}) - \text{Low}) / (\text{High} - \text{Low}) \ge 0.40)$.
+  - [x] Orders & Risk:
     - Structural Stop: Breakout Support level $- 0.2\%$ (enforce $\le 2.00\%$).
     - Tranche 1 (50% Qty): Target $+2.00\%$.
     - Tranche 2 (50% Qty): Target $+6.00\%$ (or Trailing Low).
 
-- [ ] **5.6 Setup 5: Cross-Sectional Residual / Idiosyncratic Momentum (`src/nse_cash/setups/setup5_residual_momentum.py`)**
-  - [ ] Alpha Leadership: $\text{iMOM}_{\text{Percentile}} \ge 0.95$ (Top 5th percentile of universe).
-  - [ ] Delivery Shock: $\text{Delivery\_Qty}_T \ge 2.0 \times \text{SMA}_{20}(\text{Delivery\_Qty})$ AND $\text{Close}_T > \text{Open}_T$.
-  - [ ] Orders & Risk:
+- [x] **5.6 Setup 5: Cross-Sectional Residual / Idiosyncratic Momentum (`src/nse_cash/setups/catalog.py`)**
+  - [x] Alpha Leadership: $\text{iMOM}_{\text{Percentile}} \ge 0.95$ (Top 5th percentile of universe).
+  - [x] Delivery Shock: $\text{Delivery\_Qty}_T \ge 2.0 \times \text{SMA}_{20}(\text{Delivery\_Qty})$ AND $\text{Close}_T > \text{Open}_T$.
+  - [x] Orders & Risk:
     - Structural Stop: Prior day low (enforce $\le 2.20\%$).
     - Tranche 1 (50% Qty): Target $+2.00\%$.
     - Tranche 2 (50% Qty): Target $+6.00\%$ (or Trailing Low).
 
-- [ ] **5.7 Asymmetric Runner Skew Score ($S_{\text{runner}}$) & Priority Ranker (`src/nse_cash/setups/ranking.py`)**
-  - [ ] Calculate composite score:
+- [x] **5.7 Asymmetric Runner Skew Score ($S_{\text{runner}}$) & Priority Ranker (`src/nse_cash/setups/ranking.py`)**
+  - [x] Calculate composite score:
     $$S_{\text{runner}} = 0.35 \times Z_{\text{Delivery}} + 0.35 \times \text{iMOM}_{\text{Percentile}} + 0.30 \times (1 - \text{PV}_{\text{Percentile}})$$
-  - [ ] Flag high-conviction runners ($S_{\text{runner}} \ge 0.70$).
-  - [ ] Rank all qualifying candidates across the 5 setups and pick top candidates up to available portfolio slots (max 4 total).
+  - [x] Flag high-conviction runners ($S_{\text{runner}} \ge 0.70$).
+  - [x] Rank all qualifying candidates across the 5 setups and pick top candidates up to available portfolio slots (max 4 total).
+
+#### Phase 5 Implementation Notes (deliberate deviations, all marked `ponytail:` in code)
+
+- **File layout:** all 5 setups are pure predicates in `setups/catalog.py` (~180 lines) instead of six per-setup modules. One features table (`features` in DuckDB, `setups/features.py`), one ranker (`setups/ranking.py`).
+- **Entry proxy (Plan 7.x pre-committed):** free daily data has no 10:00 AM print. Backtest/scan uses `Open_{T+1}` with a gap-check vs `Close_T x 1.012`; Setup 2's 9:15-9:30 low rule degrades to the same gap-check.
+- **Setup 1 accumulation:** the features table stores day-T values only, so Condition A is proxied by today's delivery vs SMA20 and Condition B by today's Z >= 1.5. Upgrade path: persist shock-history columns (e.g. `shock_a_5d`, `z15_count_3d`) in the features table.
+- **Setup 1 trend gate:** SMA50 > SMA200 replaced by SMA200 5-session slope > 0 (same persistence intuition, one fewer rolling series; slope column `sma200_slope5` already in the table).
+- **Setup 4 breakout age:** "broke out 3-7 sessions ago" proxied by close holding above the 1.02x base level with dry retest volume. Upgrade path: persist `breakout_age` in the features table.
+- **Setup 1/5 stops (spec-faithful):** `prev_low` is persisted in the features table; Setup 1 stops at $\min(\text{Low}_T, \text{Low}_{T-1})$ and Setup 5 at the prior day low, exactly as `algos.md` specifies.
+- **Warm-up vs PIT:** features are computed over the full lookback window for any symbol that *ever* appears in the PIT universe during it; PIT membership is enforced at read time (`load_features`).
+- **Degenerate math:** zero delivery dispersion -> Z = 0 (not NULL); zero down-EMA with positive up-EMA -> RSI(2) = 100. NULL features never match a predicate.
+- **Live-data caveat:** current DB holds ~30 sessions, so SMA200/52w/90d-base features are NULL for all symbols and Stage 3 correctly yields zero candidates. Run a 2010+ backfill (`nse-cash sync --from 2010-01-01`) for full signal coverage.
 
 ---
 
@@ -512,6 +524,32 @@ Establish a 100% deterministic test harness, validate backtest metrics against B
 
 - [ ] **8.5 Developer Architecture Guide (`docs/ARCHITECTURE.md`)**
   - [ ] Document complete codebase structure, module dependencies, DuckDB/SQLite schemas, CLI commands, and maintenance procedures so any new developer can build, test, and maintain the system with zero external intervention.
+
+---
+
+## Phase 6 Implementation Notes (Brainstorm Decisions, 2026-09-13)
+
+Agreed recommendations to carry into Phase 6 (marked `Rx` below; R1 and R2 are **done**, the rest are queued):
+
+- **[DONE] R1 — One brain, two consumers.** The 4-stage funnel (regime → governance → rank → Stage-4 gates) is extracted into `nse_cash.funnel.pipeline.decide_entries(store, config, trade_date, occupied_slots, active_sectors)`. `nse-cash scan` renders its output; the Phase 6 backtest engine replays it day by day. Scan/backtest divergence is structurally impossible. Tests: `tests/unit/test_pipeline.py`.
+- **[DONE] R2 — Historical corporate-action coverage.** The live NSE corporate-actions API retains only ~365 days, so a 2010–2022 backtest on it is fiction. Added:
+  - `nse-cash corporate-history`: one-time seed of decades of split/bonus history from Yahoo Finance into `corporate_actions` (yfinance lazy-imported; data prep only, not a runtime dependency), then `refresh_adjustments` recomputes adjusted columns.
+  - `detect_unexplained_gaps`: audits raw overnight close-to-close moves beyond ±25% (impossible within NSE 20% circuit bands) against recorded actions; unexplained gaps = missing action or suspect raw data. JSON report at `reports/corporate_action_audit.json`.
+  - Tests: `tests/unit/test_corporate_history.py`.
+- **[QUEUED] R3 — Codify the fill model before `backtest/trade_manager.py`** (each rule gets a golden test):
+  - Pessimistic intraday order: if a day's low touches the stop AND high touches the target, the **stop wins**.
+  - Limit-buy semantics: fill at `min(Open_{T+1}, Close_T × 1.012)` when `Open_{T+1} <= max_entry`; gap-down opens accepted.
+  - Gap-through stop exits at `Open_t`, never at the stop price.
+  - Breakeven arming is EOD: T1 fill on day D protects T2 only from day D+1.
+  - Resolve the spec conflict between §6.2's "T-1 daily-low trailing stop" and the BRD breakeven-after-T1 rule via a config switch (`runner_trail: breakeven | prev_low`, default breakeven); A/B both in-sample.
+- **[QUEUED] R4 — Performance policy: don't optimize yet.** ~1.6M feature rows through the row-wise ranker ≈ 5–15 min per full backtest; acceptable for a batch job. Add `compute_features_range(store, start, end)`; chunk by year if memory bites. Mark `iterrows` ceiling with `ponytail:`; a vectorized pre-filter (`close_adj > sma200`) kills ~70% of rows if it ever hurts. No "event-driven engine" rewrite.
+- **[QUEUED] R5 — Validation gates**:
+  - Golden-scenario ledger tests: gap-reject, same-day stop+target (stop wins), stall at T+2, breakeven save, kill-switch + 10-day cooldown.
+  - Backtest CLI `--start/--end` flags beyond the three presets (replay March 2020 for the kill switch).
+  - Reproducibility test: two runs, byte-identical equity curve; add a symbol tiebreak to the S_runner sort so set-iteration order never leaks into allocation.
+  - Known hypothesis to check in-sample: Setups 2/3/4 can never clear S_runner ≥ 0.70 except by luck (their primary factors — RSI, RS percentile — do not enter the score). Expect heavy S1/S5 skew; if confirmed, consider per-setup conviction thresholds (in-sample only).
+- **[QUEUED] Data probes before the first full run**: does the MTO archive actually reach 2010? (`nse-cash sync --from 2010-01-01 --to 2010-03-01`, then check `deliverable_qty` coverage). If delivery data starts ~2011, move the in-sample start to 2011 and update this document — honest beats aspirational.
+- **[QUEUED] Overnight liquid-fund interest**: accrue 6.5% p.a. on unallocated cash daily (plan §6.1) in the equity loop — trivial, and the difference between a tear sheet and a fantasy.
 
 ---
 

@@ -14,8 +14,9 @@ import duckdb
 import pandas as pd
 
 from nse_cash.core.constants import (DUCKDB_CORPORATE_ACTIONS, DUCKDB_DAILY_BARS,
-                                     DUCKDB_GOVERNANCE, DUCKDB_MARKET_INDICES,
-                                     DUCKDB_PIT_UNIVERSE)
+                                     DUCKDB_FEATURES, DUCKDB_GOVERNANCE,
+                                     DUCKDB_MARKET_INDICES, DUCKDB_PIT_UNIVERSE,
+                                     FEATURE_COLS)
 
 log = logging.getLogger("nse_cash.storage")
 
@@ -66,6 +67,17 @@ _SCHEMA = {
             detail VARCHAR,
             PRIMARY KEY (date, list_type, symbol, detail)
         )""",
+    DUCKDB_FEATURES: (
+        """
+        CREATE TABLE IF NOT EXISTS features (
+            symbol VARCHAR NOT NULL,
+            date DATE NOT NULL,
+            """
+        + ",\n            ".join(f"{c} DOUBLE" for c in FEATURE_COLS)
+        + """,
+            PRIMARY KEY (symbol, date)
+        )"""
+    ),
 }
 
 _BAR_COLS = ["symbol", "date", "series", "open", "high", "low", "close", "last",
@@ -83,6 +95,7 @@ class MarketStore:
         self.con = duckdb.connect(str(self.db_path), read_only=read_only)
         if not read_only:
             self._ensure_schema()
+            self._heal_features_schema()
 
     def _ensure_schema(self) -> None:
         for ddl in _SCHEMA.values():
@@ -147,6 +160,35 @@ class MarketStore:
         cols = ["date", "list_type", "symbol", "detail"]
         return self._upsert(DUCKDB_GOVERNANCE, ["date", "list_type", "symbol", "detail"],
                             df, cols)
+
+    def _heal_features_schema(self) -> None:
+        """Recreate the derived features table if its columns are stale.
+
+        Features are 100% recomputable from daily_bars, so a schema drift
+        (e.g. a new FEATURE_COLS entry) is healed by drop + rebuild instead
+        of failing every upsert.
+        """
+        try:
+            cols = {r[0] for r in self.con.execute(
+                f"SELECT column_name FROM information_schema.columns "
+                f"WHERE table_name = '{DUCKDB_FEATURES}'").fetchall()}
+        except duckdb.Error:
+            return
+        expected = {"symbol", "date", *FEATURE_COLS}
+        if cols and cols != expected:
+            log.warning("features schema drift (%s); recreating table",
+                        sorted(expected ^ cols))
+            self.con.execute(f"DROP TABLE IF EXISTS {DUCKDB_FEATURES}")
+            self.con.execute(_SCHEMA[DUCKDB_FEATURES])
+
+    def upsert_features(self, df: pd.DataFrame) -> int:
+        """Insert-or-replace precomputed setup features keyed on (symbol, date)."""
+        cols = ["symbol", "date", *FEATURE_COLS]
+        return self._upsert(DUCKDB_FEATURES, ["symbol", "date"], df, cols)
+
+    def latest_feature_date(self):
+        row = self.con.execute("SELECT max(date) FROM features").fetchone()
+        return row[0] if row and row[0] is not None else None
 
     # -- queries ---------------------------------------------------------------
     def trading_dates(self, start=None, end=None) -> list:

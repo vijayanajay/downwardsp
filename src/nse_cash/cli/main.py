@@ -77,6 +77,71 @@ def backtest(ctx: click.Context, in_sample: bool, walk_forward: bool, full: bool
     _placeholder("backtest")
 
 
+@cli.command("corporate-history")
+@click.option("--limit", type=int, default=0, help="Only first N symbols (smoke test).")
+@click.option("--audit-only", is_flag=True, help="Skip seeding; only run the gap audit.")
+@click.option("--symbols", default="", help="Comma-separated symbol list (default: all).")
+@click.pass_context
+def corporate_history(ctx: click.Context, limit: int, audit_only: bool, symbols: str) -> None:
+    """Seed historical split/bonus actions from yfinance; audit price gaps vs actions.
+
+    One-time data prep for the 13-year backtest: the live NSE corporate-actions
+    API retains only ~365 days, so deep history comes from Yahoo Finance splits,
+    then `detect_unexplained_gaps` flags raw >25% overnight moves that no
+    recorded action explains.
+    """
+    import json
+    from pathlib import Path
+
+    import pandas as pd
+
+    from nse_cash.core.logger import console
+    from nse_cash.data.corporate_history import (DISCONTINUITY_THRESHOLD,
+                                                 detect_unexplained_gaps,
+                                                 seed_corporate_actions_from_yfinance)
+    from nse_cash.data.storage import MarketStore
+
+    config = ctx.obj["config"]
+    store = MarketStore(Path(config.paths.duckdb_path), read_only=False)
+    try:
+        sym_list = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
+        if sym_list and limit:
+            sym_list = sym_list[:limit]
+        elif limit:
+            sym_list = [r[0] for r in store.con.execute(
+                "SELECT DISTINCT symbol FROM daily_bars ORDER BY symbol LIMIT ?",
+                [limit]).fetchall()]
+        if not audit_only:
+            n = seed_corporate_actions_from_yfinance(store, symbols=sym_list)
+            console.print(f"[green]seeded {n} corporate action row(s) from yfinance[/]")
+            from nse_cash.core.adjuster import refresh_adjustments
+            adjusted = refresh_adjustments(store)
+            console.print(f"[green]adjustments recomputed for {adjusted} symbol(s)[/]")
+        gaps = detect_unexplained_gaps(store, symbols=sym_list)
+        report_path = Path("reports/corporate_action_audit.json")
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "threshold_pct": DISCONTINUITY_THRESHOLD * 100,
+            "total_gaps": int(len(gaps)),
+            "unexplained": int((~gaps["explained"]).sum()) if not gaps.empty else 0,
+            "gaps": gaps.to_dict(orient="records"),
+        }
+        report_path.write_text(json.dumps(payload, indent=2, default=str),
+                               encoding="utf-8")
+        console.print(f"[green]audit report -> {report_path}[/]")
+        if not gaps.empty:
+            shown = gaps.head(10)
+            for _, g in shown.iterrows():
+                tag = "[red]UNEXPLAINED[/]" if not g["explained"] else "[green]explained[/]"
+                console.print(f"  {g['symbol']} {g['gap_date']} "
+                              f"{g['prev_close']:.2f} -> {g['close']:.2f} "
+                              f"({g['implied_factor']:.3f}x) {tag}")
+            if len(gaps) > 10:
+                console.print(f"  ... and {len(gaps) - 10} more (see report)")
+    finally:
+        store.close()
+
+
 @cli.command("status")
 @click.pass_context
 def status(ctx: click.Context) -> None:
