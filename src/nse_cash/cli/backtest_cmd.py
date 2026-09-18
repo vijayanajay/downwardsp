@@ -112,6 +112,23 @@ def _render_tear_sheet(metrics: dict, result, out_dir: Path) -> None:
     ts.add_row("Kill Switches", str(metrics["kill_switches"]))
     console.print(ts)
 
+    # --- BRD §10.1 verdict: target vs actual, PASS/FAIL/MISSING -------------
+    bv = Table(title="BRD §10.1 Walk-Forward Targets — Verdict",
+               title_style="bold")
+    bv.add_column("Metric", style="bold")
+    bv.add_column("Target", justify="right")
+    bv.add_column("Actual", justify="right")
+    bv.add_column("Verdict", justify="center")
+    style = {"PASS": "green", "FAIL": "red", "MISSING": "yellow"}
+    for row in metrics.get("brd_targets", []):
+        bv.add_row(row["metric"], row["target"], row["actual"],
+                   f"[{style[row['verdict']]}]{row['verdict']}[/]")
+    console.print(bv)
+    console.print("[dim]Verdict basis: net of friction, pre-STCG per-trade "
+                  "percents (BRD labels them post-tax); a MISSING row means "
+                  "no filled trades, not a pass. A verdict, not a gate — "
+                  "no CI assertion against a moving live endpoint.[/]")
+
     # --- Exit-reason histogram: does each mechanism do what the doc says? ----
     er = Table(title="Exit Reason Histogram", title_style="bold")
     er.add_column("Reason", style="bold")

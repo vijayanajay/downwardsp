@@ -61,10 +61,62 @@ def scan(ctx: click.Context, trade_date) -> None:
 
 
 @cli.command("ledger")
+@click.argument("ltps", type=str, nargs=-1, metavar="[SYMBOL=PRICE ...]")
+@click.option("--record-signal", "record_signal_date", type=click.DateTime(["%Y-%m-%d"]),
+              default=None, metavar="YYYY-MM-DD", help="Commit tonight's accepted signals to the ledger.")
+@click.option("--record-fill", "fill", type=(str, float), default=None, nargs=2,
+              metavar="SYMBOL PRICE", help="Record the 10:00 AM fill for a pending signal.")
+@click.option("--record-exit", "exit_", type=(str, float, str), default=None, nargs=3,
+              metavar="SYMBOL PRICE REASON", help="Record a tranche exit: T1_TARGET, T2_TARGET, STOP_HIT, STALL_EXITED, TIME_EXITED.")
+@click.option("--record-gap-rejected", "gap_rejected", type=str, default=None,
+              metavar="SYMBOL", help="Release a pending signal killed by the +1.2% gap ceiling.")
+@click.option("--delete", "delete_trade", type=(str, str), default=None, nargs=2,
+              metavar="TRADE_ID REASON", help="Tombstone a wrong trade row (facts kept; re-record after).")
+@click.option("--date", "date_opt", type=click.DateTime(["%Y-%m-%d"]), default=None,
+              help="Override the business date for --record-fill / --record-exit / --record-signal.")
+@click.option("--skip-reconcile", is_flag=True, default=False,
+              help="check-eod: skip the after-sync bar replay.")
 @click.pass_context
-def ledger(ctx: click.Context) -> None:
-    """Show active trades, open positions, tranche statuses and performance."""
-    _placeholder("ledger")
+def ledger(ctx: click.Context, ltps, record_signal_date, fill, exit_,
+           gap_rejected, delete_trade, date_opt, skip_reconcile: bool) -> None:
+    """Show the portfolio book, record fills/exits, or run the 3:20 PM check.
+
+    Bare `nse-cash ledger` shows positions and GTT levels. With SYMBOL=PRICE
+    tokens it runs the 3:20 PM routine on those LTPs; after `sync` it
+    reconciles the book against real bars.
+    """
+    from nse_cash.cli.ledger_cmd import (run_check_eod, run_delete_trade,
+                                         run_ledger_display,
+                                         run_record_exit,
+                                         run_record_fill,
+                                         run_record_gap_rejected,
+                                         run_record_signals)
+    if record_signal_date is not None:
+        from datetime import date as Date
+        run_record_signals(ctx, Date(record_signal_date.year,
+                                     record_signal_date.month,
+                                     record_signal_date.day))
+    elif fill is not None:
+        run_record_fill(ctx, fill[0].upper(), fill[1], _as_date(date_opt))
+    elif exit_ is not None:
+        run_record_exit(ctx, exit_[0].upper(), exit_[1], exit_[2].upper(),
+                        _as_date(date_opt))
+    elif gap_rejected is not None:
+        run_record_gap_rejected(ctx, gap_rejected.upper())
+    elif delete_trade is not None:
+        run_delete_trade(ctx, delete_trade[0], delete_trade[1])
+    else:
+        # Bare or with LTP tokens: display + 3:20 PM routine + reconcile.
+        run_ledger_display(ctx)
+        if ltps:
+            run_check_eod(ctx, ltps, skip_reconcile=True)
+        else:
+            run_check_eod(ctx, None, skip_reconcile)
+
+
+def _as_date(dt):
+    from datetime import date as Date
+    return None if dt is None else Date(dt.year, dt.month, dt.day)
 
 
 @cli.command("backtest")

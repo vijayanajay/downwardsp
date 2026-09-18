@@ -334,6 +334,16 @@ def _buy_friction_rate(config) -> float:
             + (f.nse_turnover + f.sebi_fee) * f.gst_rate)
 
 
+def slot_quantity(config, entry_ref: float,
+                  slot_capital: float | None = None) -> int:
+    """Shares one slot buys at `entry_ref`: slot capital net of exact buy
+    friction. THE sizing rule — the action sheet, the recorded signal and the
+    engine all call this, so the live book and the backtest can never size
+    the same trade differently."""
+    capital = config.capital.slot_capital if slot_capital is None else slot_capital
+    return int(capital // (entry_ref * (1.0 + _buy_friction_rate(config))))
+
+
 def _execute_pending_entry(book: SimBook, config, cache: BarCache,
                            symbol: str, cand, entry_day: Date,
                            sector: str | None,
@@ -348,6 +358,12 @@ def _execute_pending_entry(book: SimBook, config, cache: BarCache,
         return
     if sector and sector != UNKNOWN_SECTOR and sector in book.sectors:
         return
+    if symbol in book.positions:
+        # ponytail guard: ranking dedupes per (symbol, date) and entry is
+        # T+1, so this should be unreachable — but a duplicate pending entry
+        # would overwrite the dict slot and leak the first trade's slot.
+        log.warning("entry for %s skipped: position already open", symbol)
+        return
     bar = cache.bar(symbol, entry_day)
     if bar is None:
         log.debug("entry skipped for %s on %s: no bar", symbol, entry_day)
@@ -355,9 +371,7 @@ def _execute_pending_entry(book: SimBook, config, cache: BarCache,
 
     entry_ref = float(cand.entry_ref)                    # raw Close_T
     stop_raw = float(cand.structural_stop)               # raw
-    qty_total = int(config.capital.slot_capital
-                    // (entry_ref * (1.0 + _buy_friction_rate(config)))
-                    )
+    qty_total = slot_quantity(config, entry_ref)
     if qty_total <= 0:
         return
 

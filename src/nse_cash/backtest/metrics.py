@@ -7,8 +7,10 @@ produce byte-identical tear sheets.
 
 The tear sheet leads with the boring tables (exit-reason histogram, per-setup
 P&L, benchmark comparison) because "did each mechanism do what the doc says"
-matters more than any single ratio. BRD target ratios are printed for
-reference but never as a pass/fail gate — a gate invites tuning.
+matters more than any single ratio. The BRD §10.1 targets get an honest
+PASS/FAIL/MISSING verdict table (verify_brd_targets) — a verdict, not a gate:
+no pytest asserts against a live-ingested walk-forward endpoint, because that
+flake-trains people to ignore red. The operator reads the verdict every run.
 """
 
 from __future__ import annotations
@@ -193,6 +195,99 @@ def win_stats(trades: pd.DataFrame) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# BRD §10.1 walk-forward acceptance verdict (8.3) — verdict, not CI gate
+# ---------------------------------------------------------------------------
+
+BRD_TARGETS: tuple[tuple[str, ...], ...] = (
+    # (metric key, label, floor, ceiling). Floor/ceiling None = unbounded.
+    # Ranges are BRD §10.1 "Expected Realistic Performance Profile"; CAGR and
+    # drawdown are one-sided (post-tax CAGR >= 14%, max DD < 8.5%).
+    ("cagr_post_tax", "Post-Tax CAGR", 0.14, None),
+    ("win_rate", "Win Rate", 0.48, 0.56),
+    ("profit_factor", "Profit Factor", 1.55, 1.85),
+    ("max_drawdown", "Max Drawdown", None, -0.085),
+    ("avg_win_net_pct", "Avg Win (net %)", 2.40, 2.70),
+    ("avg_loss_net_pct", "Avg Loss (net %)", -1.90, -1.80),
+    ("expectancy_net_pct", "Expectancy (net %)", 0.40, 0.75),
+)
+
+
+def _fmt_bound(v: float | None, mode: str = "ratio_pct") -> str:
+    """mode: 'ratio_pct' scales a fraction to % (0.05 -> +5.00%);
+    'plain' prints as-is (profit factor 1.70); 'pct' prints a value that is
+    ALREADY in percent (2.55 -> +2.55%)."""
+    if v is None:
+        return "—"
+    if mode == "ratio_pct":
+        return f"{v * 100:+.2f}%"
+    if mode == "pct":
+        return f"{v:+.2f}%"
+    return f"{v:+.2f}"  # noqa: E701
+
+
+def _fmt_mode(key: str) -> str:
+    return "plain" if key == "profit_factor" else (
+        "pct" if key.endswith("_pct") else "ratio_pct")
+
+
+def brd_targets_verdict(metrics: dict) -> list[dict]:
+    """Compare one run's metrics against the BRD §10.1 target ranges.
+
+    Returns a row per target: metric, target text, actual, verdict
+    (PASS / FAIL / MISSING). MISSING — including the trivially-small-sample
+    case (zero filled trades) — is deliberate: an absent number must not look
+    like a failing one, and neither must ever read as PASS.
+
+    Direction conventions match the metrics dict exactly: win_rate/cagr are
+    fractions (higher is better, lo..hi), max_drawdown is a negative fraction
+    where CLOSER TO ZERO is better (floor lo is the disaster bound), and the
+    *_net_pct rows are already in percent (BRD-style, e.g. 2.55 = +2.55%).
+    """
+    rows: list[dict] = []
+    n_trades = int(metrics.get("trades") or 0)
+    for key, label, lo, hi in BRD_TARGETS:
+        value = metrics.get(key)
+        if value is None or (key.endswith("_pct") and n_trades == 0):
+            rows.append({"metric": label, "target": _target_text(lo, hi, key),
+                         "actual": "—", "verdict": "MISSING"})
+            continue
+        v = float(value)
+        if key == "max_drawdown":
+            # Drawdown is a one-sided magnitude cap: -0.05 is BETTER than
+            # -0.085. Whichever bound is present is the disaster limit.
+            bound = hi if hi is not None else lo
+            ok = bound is None or v >= bound
+        else:
+            ok = (lo is None or v >= lo) and (hi is None or v <= hi)
+        mode = _fmt_mode(key)
+        rows.append({"metric": label,
+                     "target": _target_text(lo, hi, key),
+                     "actual": _fmt_bound(v, mode),
+                     "verdict": "PASS" if ok else "FAIL"})
+    return rows
+
+
+def _target_text(lo: float | None, hi: float | None, key: str = "") -> str:
+    mode = _fmt_mode(key)
+    if key == "max_drawdown":
+        bound = hi if hi is not None else lo
+        return f"{_fmt_bound(0.0, mode)} .. {_fmt_bound(bound, mode)}"
+    if lo is not None and hi is not None:
+        return f"{_fmt_bound(lo, mode)} .. {_fmt_bound(hi, mode)}"
+    if lo is not None:
+        return f">= {_fmt_bound(lo, mode)}"
+    return f"< {_fmt_bound(hi, mode)}"
+
+
+def verify_brd_targets(metrics: dict) -> bool:
+    """True iff every BRD §10.1 row exists and passes. A MISSING row fails the
+    verification but is rendered distinctly, so 'no data' never impersonates
+    'bad performance'."""
+    rows = brd_targets_verdict(metrics)
+    return bool(rows) and all(r["verdict"] == "PASS" for r in rows)
+
+
+# ---------------------------------------------------------------------------
 # Full tear sheet
 # ---------------------------------------------------------------------------
 
@@ -224,7 +319,23 @@ def compute_metrics(store, result, index_name: str = "NIFTY 500") -> dict:
     ws = win_stats(trades)
     setup_pnl, setup_counts = setup_breakdown(trades)
 
-    return {
+    # BRD §10.1 rows consume net-percent per trade: win_stats returns rupee
+    # averages; percent-of-entry needs the entry price alongside.
+    filled = trades[trades["entry_price"].notna()] if not trades.empty else trades
+
+    def _avg_net_pct(df: pd.DataFrame) -> float | None:
+        if df.empty:
+            return None
+        return round(float((df["realized_pnl"] / df["entry_price"]
+                            * 100.0).mean()), 4)
+
+    wins = filled[filled["realized_pnl"] > 0] if not filled.empty else filled
+    losses = filled[filled["realized_pnl"] <= 0] if not filled.empty else filled
+    avg_win_pct = _avg_net_pct(wins)
+    avg_loss_pct = _avg_net_pct(losses)
+    expect_pct = _avg_net_pct(filled)
+
+    metrics = {
         "start_date": result.start,
         "end_date": result.end,
         "trades": ws["trades"],
@@ -242,6 +353,9 @@ def compute_metrics(store, result, index_name: str = "NIFTY 500") -> dict:
         "avg_win_net": round(ws["avg_win_net"], 2),
         "avg_loss_net": round(ws["avg_loss_net"], 2),
         "expectancy_net": round(ws["expectancy_net"], 2),
+        "avg_win_net_pct": avg_win_pct,
+        "avg_loss_net_pct": avg_loss_pct,
+        "expectancy_net_pct": expect_pct,
         # Risk-adjusted ratios are meaningless for a portfolio that never
         # trades (a flat cash curve's daily "returns" are rounding jitter);
         # report 0 rather than a five-digit Sharpe of pure noise.
@@ -260,3 +374,6 @@ def compute_metrics(store, result, index_name: str = "NIFTY 500") -> dict:
         "monthly_returns": monthly_returns(eq),
         "fy_tax_summary": list(result.stcg.fy_summary),
     }
+    metrics["brd_targets"] = brd_targets_verdict(metrics)
+    metrics["brd_all_pass"] = verify_brd_targets(metrics)
+    return metrics

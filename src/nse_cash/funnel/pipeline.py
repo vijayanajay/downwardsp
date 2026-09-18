@@ -31,17 +31,21 @@ class DecisionResult:
     """Everything one trading day's funnel pass produced."""
 
     __slots__ = ("date", "regime", "excluded_count", "candidates",
-                 "accepted", "rejected")
+                 "accepted", "rejected", "occupied_slots")
 
     def __init__(self, date: Date, regime, excluded_count: int,
                  candidates: list[CandidateSignal],
-                 accepted: list, rejected: list) -> None:
+                 accepted: list, rejected: list,
+                 occupied_slots: int = 0) -> None:
         self.date = date
         self.regime = regime
         self.excluded_count = excluded_count
         self.candidates = candidates
         self.accepted = accepted          # [(CandidateSignal, Stage4Decision)]
         self.rejected = rejected          # [(CandidateSignal, reason)]
+        # Slots the caller already committed (live book + unfilled recorded
+        # signals for Phase 7's scan). The header renders "X of 4 available".
+        self.occupied_slots = occupied_slots
 
 
 def decide_entries(store, config, trade_date: Date,
@@ -102,4 +106,5 @@ def decide_entries(store, config, trade_date: Date,
                 rejected.append((cand, dec.rejection_reason))
 
     return DecisionResult(trade_date, regime, excluded_count,
-                          candidates, accepted, rejected)
+                          candidates, accepted, rejected,
+                          occupied_slots=occupied_slots)

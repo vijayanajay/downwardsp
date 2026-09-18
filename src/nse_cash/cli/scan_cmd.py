@@ -19,8 +19,10 @@ from rich.panel import Panel
 from rich.table import Table
 
 from nse_cash.core.logger import console
-from nse_cash.core.types import MarketRegimeState, SetupID
+from nse_cash.core.types import MarketRegimeState
 from nse_cash.data.storage import MarketStore
+from nse_cash.execution.action_sheet import render_action_sheet
+from nse_cash.execution.ledger import Ledger
 from nse_cash.funnel.pipeline import decide_entries
 
 log = logging.getLogger("nse_cash.scan")
@@ -50,10 +52,42 @@ def run_scan(ctx: click.Context, trade_date_opt: Optional[Date]) -> None:
         store.close()
 
 
+def _live_book(config) -> tuple[int, set[str], int | None, Ledger]:
+    """Open slots + claimed sectors from the production ledger.
+
+    Slots are occupied by FILLED trades (money at risk) and by recorded
+    signals awaiting tomorrow's fill (committed at scan time). A missing
+    ledger file means an empty book; a read-only open failure falls back to
+    read-only=False sqlite (schema creation on a fresh path). If the ledger
+    cannot be opened at all, scan still runs — capacity just reads 0.
+    """
+    try:
+        led = Ledger(config.paths.ledger_db_path)
+        occupied = led.occupied_slots() + len(led.pending_signals())
+        sectors = led.active_sectors()
+        # ponytail: pending signals hold their signal-day sector but the
+        # sector gate needs FILLED sectors only, so pending sectors do not
+        # block a same-sector candidate tonight. Upgrade path: claim pending
+        # sectors too if double-allocating one sector across two nights
+        # becomes a real annoyance.
+        blocker = led.kill_blocker()
+        return occupied, sectors, blocker, led
+    except Exception as exc:  # noqa: BLE001 - scan must never die on ledger
+        log.warning("ledger unavailable (%s); scan proceeds with an empty book", exc)
+        return 0, set(), None, None
+
+
 def _execute_funnel_scan(store: MarketStore, config, target_date: Date) -> None:
     console.rule(f"[bold cyan]NSE Cash Swing System — 4-Stage Filter Funnel ({target_date})[/]")
 
-    result = decide_entries(store, config, target_date)
+    occupied, sectors, blocker, led = _live_book(config)
+    if blocker:
+        console.print(f"[bold red]ENTRY HALT:[/] {blocker} — signals below are "
+                      "informational only. Do NOT place orders.")
+
+    result = decide_entries(store, config, target_date,
+                            occupied_slots=occupied,
+                            active_sectors=sectors)
     regime = result.regime
 
     # =========================================================================
@@ -92,6 +126,12 @@ def _execute_funnel_scan(store: MarketStore, config, target_date: Date) -> None:
     table.add_row("Regime Decision", state_colored, "Both Must Pass", state_colored)
     console.print(table)
 
+    if led is not None:
+        for p in led.integrity_problems(config):
+            console.print(f"[red]LEDGER:[/] {p}")
+        led.close()
+        led = None  # Stage 1 rendering below needs nothing more from it
+
     if regime.state == MarketRegimeState.DEFENSIVE_CASH:
         alert_text = (
             "[bold red]HALT: 100% CASH DEFENSIVE SWITCH ACTIVE[/]\n\n"
@@ -123,61 +163,4 @@ def _render_action_sheet(config, result, target_date: Date) -> None:
     """10:00 AM Action Sheet: the pipeline's accepted candidates."""
     console.rule(f"[bold cyan]Stage 3 & 4: Candidates, S_runner & Action Sheet ({target_date})[/]")
 
-    accepted = result.accepted
-    if not result.candidates:
-        console.print("[yellow]No setup matched any universe stock today "
-                      "(zero new entries; 100% cash on Stage 3).[/]")
-        return
-
-    slot_capital = config.capital.slot_capital
-    table = Table(title="10:00 AM Action Sheet — Dual-GTT Orders", title_style="bold")
-    table.add_column("Symbol", style="bold")
-    table.add_column("Setup")
-    table.add_column("S_runner", justify="right")
-    table.add_column("Entry Ref", justify="right")
-    table.add_column("Max Entry (+1.2%)", justify="right")
-    table.add_column("T1 Target", justify="right")
-    table.add_column("T2 Target", justify="right")
-    table.add_column("Struct Stop", justify="right")
-    table.add_column("Qty (T1/T2)", justify="right")
-
-    max_gap = config.risk.max_gap_entry
-    for cand, _dec in accepted:
-        qty = int(slot_capital // cand.entry_ref)
-        t1_qty, t2_qty = qty // 2, qty - qty // 2
-        table.add_row(
-            cand.symbol,
-            cand.setup.value.replace("SETUP_", "S").replace("_", " ").title(),
-            f"{cand.s_runner:.2f}",
-            f"₹{cand.entry_ref:,.2f}",
-            f"₹{cand.entry_ref * (1 + max_gap):,.2f}",
-            f"₹{cand.entry_ref * (1 + cand.tranche1_target_pct):,.2f}",
-            f"₹{cand.entry_ref * (1 + cand.tranche2_target_pct):,.2f}",
-            f"₹{cand.structural_stop:,.2f} ({-cand.structural_stop_pct * 100:.2f}%)",
-            f"{qty} ({t1_qty}/{t2_qty})",
-        )
-    console.print(table)
-
-    if result.rejected:
-        shown = 0
-        for cand, reason in result.rejected:
-            if shown >= 6:
-                console.print(f"[dim]... and {len(result.rejected) - shown} more rejections[/]")
-                break
-            console.print(f"[dim]rejected {cand.symbol} ({cand.setup.value}): {reason}[/]")
-            shown += 1
-
-    playbook = (
-        "1. At 10:00 AM: verify price <= Max Entry. Place Buy Limit for full Qty.\n"
-        "2. On fill: place TWO independent GTT OCO sells:\n"
-        "   GTT 1 (T1): target = T1 Target, stop = Structural Stop.\n"
-        "   GTT 2 (T2): target = T2 Target, stop = Structural Stop.\n"
-        "3. EOD 3:20 PM: if GTT 1 filled, modify GTT 2 stop to Breakeven (Entry).\n"
-        "4. Stall rule: Day T+2 3:15 PM gain < +0.80% -> cancel GTTs, sell at market.\n"
-        "5. Day 5 3:15 PM: exit anything remaining."
-    )
-    console.print(Panel(playbook, title="Manual Dual-GTT Playbook (Zerodha Kite)",
-                        border_style="green", expand=False))
-    if any(c.setup is SetupID.SETUP_4_ANCHOR_RETEST for c, _ in accepted):
-        console.print("[dim]Setup 4 lines carry a tighter -2.00% stop gate; "
-                      "all others -2.20%.[/]")
+    render_action_sheet(config, result, target_date)
