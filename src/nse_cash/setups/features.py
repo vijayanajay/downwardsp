@@ -23,11 +23,15 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from nse_cash.core.constants import (BASE_RESISTANCE_DAYS, DELIVERY_Z_WINSOR,
-                                     FEATURE_COLS, FEATURE_WINDOW_DAYS,
-                                     HIGH_52W_DAYS, IMOM_REGRESSION_DAYS,
-                                     IMOM_SUM_DAYS, PV_PERCENTILE_WINDOW,
-                                     PV_WINDOW)
+from nse_cash.core.constants import (BASE_RESISTANCE_DAYS,
+                                     BREAKOUT_CONFIRM_MULT,
+                                     BREAKOUT_RETEST_AGE_MAX,
+                                     BREAKOUT_RETEST_AGE_MIN,
+                                     DELIVERY_Z_WINSOR, FEATURE_COLS,
+                                     FEATURE_WINDOW_DAYS, HIGH_52W_DAYS,
+                                     ICEBERG_LOOKBACK_DAYS,
+                                     IMOM_REGRESSION_DAYS, IMOM_SUM_DAYS,
+                                     PV_PERCENTILE_WINDOW, PV_WINDOW)
 
 log = logging.getLogger("nse_cash.features")
 
@@ -61,7 +65,19 @@ def _add_symbol_features(df: pd.DataFrame) -> pd.DataFrame:
     # Zero dispersion means every value in the window (incl. today) is equal,
     # so today's deviation is 0 too: no shock, z = 0 (not NaN).
     z = z.mask(sd == 0, 0.0)
-    out["delivery_z"] = z.clip(upper=DELIVERY_Z_WINSOR)
+    z = z.clip(upper=DELIVERY_Z_WINSOR)
+    out["delivery_z"] = z
+
+    # --- CR-2026-001 Issue 1: rolling accumulation footprints (Setup 1) ---
+    # The accumulation shock happens on some day WITHIN the lookback; day T
+    # itself is the volume dry-up + squeeze. Storing the rolling flags here
+    # (not in the predicate) keeps scan and backtest on identical values.
+    shock_now = ((dlv >= 2.20 * out["sma20_delivery"])
+                 & (out["close_adj"] > out["open_adj"])).astype(float)
+    shock_now = shock_now.mask(out["sma20_delivery"].isna() | out["open_adj"].isna(), np.nan)
+    out["shock_a_5d"] = shock_now.rolling(5, min_periods=1).max()
+    z15_now = (z >= 1.50).astype(float).where(z.notna())
+    out["z15_count_3d"] = z15_now.rolling(3, min_periods=1).sum()
 
     # --- Parkinson volatility + percentile in own 60-day history ---
     hl2 = (np.log(high / low)) ** 2
@@ -121,6 +137,29 @@ def _add_symbol_features(df: pd.DataFrame) -> pd.DataFrame:
                                        min_periods=BASE_RESISTANCE_DAYS).max()
     out["high_52w"] = high.rolling(HIGH_52W_DAYS,
                                    min_periods=HIGH_52W_DAYS).max()
+
+    # --- CR-2026-001 Issue 2: frozen breakout anchor (Setup 4) ---
+    # The CR proposed the rolling base_high_90 as the anchor, but a rolling
+    # max includes the breakout rally bars themselves (measured +3.5% above
+    # the pre-breakout ceiling by day 1, +6.8% by day 7, worst case +91%).
+    # Correct anchor: the PRIOR 90-session ceiling (window ending at B-1),
+    # frozen at the breakout day B; `breakout_age` = sessions since the most
+    # recent breakout (0 on day B, alive for 30 sessions, else NULL).
+    prior_high = out["base_high_90"].shift(1)      # 90-session window ending t-1
+    above = out["close_adj"] > BREAKOUT_CONFIRM_MULT * prior_high
+    # Breakout = FRESH cross: the first close above the level, not every
+    # session still holding above it (matches the probed SQL semantics).
+    breakout = above & ~above.shift(1, fill_value=False)
+    n = len(out)
+    bo_idx = np.where(breakout.to_numpy(), np.arange(n), -1)
+    last_bo = np.maximum.accumulate(bo_idx)        # most recent breakout session
+    age = (np.arange(n) - last_bo).astype("float64")
+    anchor_arr = prior_high.to_numpy(dtype="float64")
+    anchor = np.where(last_bo >= 0,
+                      anchor_arr[np.maximum(last_bo, 0)], np.nan)
+    live = (last_bo >= 0) & (age <= 30)            # stale breakouts die silently
+    out["breakout_age"] = np.where(live, age, np.nan)
+    out["breakout_anchor_90"] = np.where(live, anchor, np.nan)
 
     # Prior session low (per-symbol; frame is date-ascending): Setup 1 uses
     # min(Low_T, Low_{T-1}) and Setup 5 uses the prior day low for stops.

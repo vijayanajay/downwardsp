@@ -33,6 +33,7 @@ from nse_cash.backtest.engine import _settle_position_money
 from nse_cash.backtest.fill_model import (EventType, SimPosition,
                                           simulate_entry_day, simulate_open_day)
 from nse_cash.backtest.tax_friction import STCGAccount, liquid_fund_interest
+from nse_cash.core.tick import round_to_tick  # canonical; re-exported below
 from nse_cash.core.types import ExitReason
 
 log = logging.getLogger("nse_cash.ledger")
@@ -41,7 +42,7 @@ LIQUID_FUND_RATE = 0.065  # mirrors backtest.engine.LIQUID_FUND_RATE
 
 _TRADE_COLS = ("trade_id, symbol, setup_id, signal_date, slot, sector,"
                " entry_ref, max_entry, structural_stop, tranche1_target,"
-               " tranche2_target, tranche1_qty, tranche2_qty")
+               " tranche2_target, tranche1_qty, tranche2_qty, stop_limit")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS trades (
@@ -58,6 +59,9 @@ CREATE TABLE IF NOT EXISTS trades (
     tranche2_target REAL NOT NULL,
     tranche1_qty    INTEGER NOT NULL,
     tranche2_qty    INTEGER NOT NULL,
+    -- CR-2026-001: the GTT stop LIMIT leg as originally placed (audit trail;
+    -- the standing limit is derived from the active stop + config buffer).
+    stop_limit      REAL,
     deleted         INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS events (
@@ -97,9 +101,7 @@ def _date(s: str) -> Date:
     return Date.fromisoformat(s)
 
 
-def round_to_tick(price: float, tick: float = 0.05) -> float:
-    """Round a rupee price to the NSE tick (₹0.05). Kite rejects other levels."""
-    return round(round(price / tick) * tick, 2)
+__all__ = ["Ledger", "round_to_tick"]
 
 
 class Ledger:
@@ -112,6 +114,12 @@ class Ledger:
         self.con.row_factory = sqlite3.Row
         self.con.execute("PRAGMA journal_mode = WAL")
         self.con.executescript(_SCHEMA)
+        # CR-2026-001 migration: stop_limit on existing books. Facts are never
+        # rewritten — old rows keep NULL and display derives from the buffer.
+        try:
+            self.con.execute("ALTER TABLE trades ADD COLUMN stop_limit REAL")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         self.con.commit()
 
     def close(self) -> None:
@@ -126,13 +134,14 @@ class Ledger:
                   entry_ref: float, structural_stop: float,
                   tranche1_target: float, tranche2_target: float,
                   max_gap_pct: float, tranche1_qty: int,
-                  tranche2_qty: int) -> None:
+                  tranche2_qty: int, stop_limit: float | None = None) -> None:
         self.con.execute(
-            "INSERT OR REPLACE INTO trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
+            "INSERT OR REPLACE INTO trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
             (trade_id, symbol, setup_id, _iso(signal_date), slot, sector,
              entry_ref, round_to_tick(entry_ref * (1.0 + max_gap_pct)),
              round_to_tick(structural_stop), round_to_tick(tranche1_target),
-             round_to_tick(tranche2_target), tranche1_qty, tranche2_qty))
+             round_to_tick(tranche2_target), tranche1_qty, tranche2_qty,
+             round_to_tick(stop_limit) if stop_limit else None))
         self.con.commit()
 
     def _trade_from_row(self, row) -> dict | None:
@@ -473,11 +482,13 @@ class Ledger:
                 if today <= ex <= today.fromordinal(today.toordinal() + horizon_days) \
                         and af is not None and abs(float(af) - 1.0) > 1e-9:
                     f = float(af)
+                    standing = pos.pending_stop_raw or pos.structural_stop_raw
                     warnings.append(
                         f"{t['trade_id']} ({t['symbol']}): ex-date {ex} — "
                         f"modify GTT triggers: T1 ₹{round_to_tick(pos.tranche1_target_raw * f):,.2f}, "
                         f"T2 ₹{round_to_tick(pos.tranche2_target_raw * f):,.2f}, "
-                        f"stop ₹{round_to_tick((pos.pending_stop_raw or pos.structural_stop_raw) * f):,.2f}, "
+                        f"stop trigger ₹{round_to_tick(standing * f):,.2f} "
+                        f"(limit ₹{round_to_tick(standing * f * 0.985):,.2f}), "
                         f"qty x{round(1 / f)}")
         return warnings
 

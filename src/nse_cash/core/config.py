@@ -43,6 +43,11 @@ class RiskConfig(BaseModel):
     #   "breakeven" -> stop moves to entry price at EOD (BRD default)
     #   "prev_low"  -> stop trails the prior session's low (Plan 6.2 literal)
     runner_trail: Literal["breakeven", "prev_low"] = "breakeven"
+    # CR-2026-001 Issue 4: Kite GTT OCO stop LIMIT leg, as a fraction BELOW the
+    # stop trigger. A sell limit AT the trigger goes unexecuted when the stock
+    # gaps below it overnight; the limit leg guarantees a market-matching fill.
+    # Measured: 5.06% of sessions gap down beyond -1.5% (clean 2010-2026 data).
+    gtt_stop_limit_buffer: float = Field(default=0.015, ge=0.0, le=0.10)
 
 
 class FrictionConfig(BaseModel):

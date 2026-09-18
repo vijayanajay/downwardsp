@@ -6,7 +6,17 @@ is pinned here in one evaluation order, with a golden test for each:
 
   1.  Entry (Day T+1 open): fill at min(Open, Close_T * 1.012) when
       Open <= max_entry; gap-down opens are accepted at Open.
-  2.  Open-through-stop: exit at Open_t, never at the stop price.
+  2.  Gap-through-stop (CR-2026-001): the stop is a Kite GTT OCO — trigger at
+      the structural stop, LIMIT leg `gtt_stop_limit_buffer` (1.5%) BELOW it.
+      On an overnight gap below the trigger:
+        a. Open >= limit leg  -> the sell limit fills at the open.
+        b. Open < limit leg but the day's high recovers to it -> fills at the
+           limit (the order sits working until price reaches it).
+        c. Gap beyond the limit leg all day -> GTT_STOP_UNFILLED: the position
+           survives the session, and the operator's stall/time rules exit it
+           at close. The stop stays armed for the next session.
+      An intraday stop touch (open above the trigger) still fills at the
+      trigger — the limit leg only matters on gaps.
   3.  Intrabar pessimism: if a day's low touches the stop AND high touches a
       target, the stop wins. Ambiguous fills are flagged for the truth band.
   4.  T1 fills at its target on any session until filled. Breakeven arms at
@@ -37,6 +47,7 @@ from enum import Enum
 
 import pandas as pd
 
+from nse_cash.core.tick import round_to_tick
 from nse_cash.core.types import ExitReason
 
 log = logging.getLogger("nse_cash.fill_model")
@@ -61,6 +72,9 @@ class EventType(str, Enum):
     BREAKEVEN_ARMED = "BREAKEVEN_ARMED"
     CORPORATE_ACTION_ADJUSTED = "CORPORATE_ACTION_ADJUSTED"
     CIRCUIT_FROZEN = "CIRCUIT_FROZEN"
+    # CR-2026-001 Issue 4: gap opened below the stop's LIMIT leg and never
+    # recovered — the GTT stop did not execute; position survives the session.
+    GTT_STOP_UNFILLED = "GTT_STOP_UNFILLED"
 
 
 @dataclass(frozen=True)
@@ -109,6 +123,10 @@ class SimPosition:
     t1_filled: bool = False
     t2_open: bool = True
     pending_stop_raw: float | None = None   # limit stop in force next session
+    # Stop LIMIT leg (GTT field 2), raw rupees; None = derive from config's
+    # gtt_stop_limit_buffer. Carried from the CandidateSignal so live book,
+    # sheet and backtest share one number.
+    stop_limit_raw: float | None = None
     day_index: int = 0                      # sessions since T; entry day = 1
 
     @property
@@ -131,6 +149,38 @@ class SimPosition:
 # ---------------------------------------------------------------------------
 # 1. Entry day (Day T+1)
 # ---------------------------------------------------------------------------
+
+def _stop_limit_raw(pos: SimPosition, stop: float, config) -> float:
+    """The standing stop's LIMIT leg: the recorded one, or config's buffer."""
+    if pos.stop_limit_raw is not None and pos.stop_limit_raw > 0:
+        return pos.stop_limit_raw
+    return round_to_tick(stop * (1.0 - config.risk.gtt_stop_limit_buffer))
+
+
+def _gap_through_stop(pos: SimPosition, o: float, h: float, stop: float,
+                      config, day: Date) -> bool:
+    """GTT stop semantics when the open gaps below the stop trigger.
+
+    Returns True if the position exited (fill at open or at the limit leg on
+    an intraday recovery); False when the gap stayed beyond the limit leg all
+    day — GTT_STOP_UNFILLED, position survives (stall/time rules exit it).
+    """
+    limit = _stop_limit_raw(pos, stop, config)
+    reason = (ExitReason.TRAILING_STOP_HIT if pos.t1_filled
+              else ExitReason.STRUCTURAL_STOP_HIT)
+    if o >= limit - _TOL:
+        _exit_all(pos, o, reason, day)
+        return True
+    if h >= limit - _TOL:
+        # The triggered sell limit sits at `limit`; fills when price recovers.
+        _exit_all(pos, limit, reason, day)
+        return True
+    pos.events.append(TradeEvent(
+        EventType.GTT_STOP_UNFILLED, day, pos.symbol, 0, price=o,
+        detail=(f"open {o:.2f} below stop-limit {limit:.2f} "
+                "(trigger fired, limit unexecuted) — position carried")))
+    return False
+
 
 def simulate_entry_day(pos: SimPosition, bar, config,
                        action_factor: float | None = None) -> SimPosition:
@@ -170,9 +220,14 @@ def simulate_entry_day(pos: SimPosition, bar, config,
     t1_touch = h >= pos.tranche1_target_raw - _TOL
 
     # (c) Immediate stop-out: opened at/below the stop -> the stop GTT placed
-    # after the fill triggers at once and sells at market ~= Open.
+    # after the fill triggers at once. GTT-buffer semantics apply (rule 2):
+    # fill at the open, at the limit leg on recovery, or survive the session.
     if o <= stop + _TOL:
-        _exit_all(pos, o, ExitReason.STRUCTURAL_STOP_HIT, day)
+        if _gap_through_stop(pos, o, h, stop, config, day):
+            return pos
+        # Unfilled: skip intrabar logic (high < limit < targets); arm the stop
+        # for tomorrow via the EOD refresh below.
+        refresh_stops_eod(pos, bar, config)
         return pos
 
     # (d) Intrabar pessimism on entry day: stop and T1 target both inside the
@@ -224,27 +279,30 @@ def simulate_open_day(pos: SimPosition, bar, config,
 
     stop = pos.pending_stop_raw
 
-    # Gap-through-stop: exit at the open, never at the stop price.
+    # Gap-through-stop: GTT-buffer semantics (rule 2) — fill at open, at the
+    # limit leg on recovery, or the position survives an unfilled session.
     if stop is not None and o < stop - _TOL:
-        _exit_all(pos, o, ExitReason.STRUCTURAL_STOP_HIT, day)
-        return pos
+        if _gap_through_stop(pos, o, h, stop, config, day):
+            return pos
+        # Unfilled: no intrabar evaluation (high < limit leg < all targets);
+        # the operator's stall/time rules below exit at close if triggered.
+    else:
+        stop_touch = stop is not None and l <= stop + _TOL
+        t1_touch = (not pos.t1_filled) and h >= pos.tranche1_target_raw - _TOL
+        t2_touch = h >= pos.tranche2_target_raw - _TOL
 
-    stop_touch = stop is not None and l <= stop + _TOL
-    t1_touch = (not pos.t1_filled) and h >= pos.tranche1_target_raw - _TOL
-    t2_touch = h >= pos.tranche2_target_raw - _TOL
-
-    # Intrabar pessimism: stop and any target inside the same bar -> stop wins.
-    if stop_touch and (t1_touch or t2_touch):
-        _exit_all(pos, stop, ExitReason.TRAILING_STOP_HIT, day, ambiguous=True)
-        return pos
-    if stop_touch:
-        _exit_all(pos, stop, ExitReason.TRAILING_STOP_HIT, day)
-        return pos
-    if t1_touch:
-        _fill_t1(pos, day)
-    if pos.t1_filled and t2_touch:
-        _exit_tranche2(pos, pos.tranche2_target_raw, ExitReason.TARGET_2_HIT, day)
-        return pos
+        # Intrabar pessimism: stop and any target inside the same bar -> stop wins.
+        if stop_touch and (t1_touch or t2_touch):
+            _exit_all(pos, stop, ExitReason.TRAILING_STOP_HIT, day, ambiguous=True)
+            return pos
+        if stop_touch:
+            _exit_all(pos, stop, ExitReason.TRAILING_STOP_HIT, day)
+            return pos
+        if t1_touch:
+            _fill_t1(pos, day)
+        if pos.t1_filled and t2_touch:
+            _exit_tranche2(pos, pos.tranche2_target_raw, ExitReason.TARGET_2_HIT, day)
+            return pos
 
     # --- EOD checks, only if still holding ---
     if pos.day_index == 2 and \

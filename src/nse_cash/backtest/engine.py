@@ -387,6 +387,10 @@ def _execute_pending_entry(book: SimBook, config, cache: BarCache,
         tranche1_qty=qty_total // 2,
         tranche2_qty=qty_total - qty_total // 2,
         sector=sector,
+        # CR-2026-001: the stop's LIMIT leg derives from config's
+        # gtt_stop_limit_buffer inside the fill model (relative to whichever
+        # stop is standing — structural or breakeven), so live and backtest
+        # gap semantics cannot diverge.
     )
     pos.slot = book.take_slot()
     book.positions[symbol] = pos

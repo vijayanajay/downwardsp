@@ -1,0 +1,23 @@
+extent: dates=4094 [2010-01-04..2026-09-17] symbols=4110 bar_rows=6534134 features=593065 [2023-07-04..2026-09-17]
+
+E2: Setup 1 day-T shock+dry-up joint feasibility
+  day-T windows (from 2022-01-01)=2299885: shock=207253 (9.011%), dry=1051194 (45.71%), JOINT=102 (0.00444%)
+
+E1: conviction-score attainability on persisted features
+  rows=593065  z max=3.00  imom_pct max=1.0000  pv_pct min=0.0167
+  max attainable S: raw-z=1.695 | z/3=0.995 | dry-day=0.645 (thr 0.70)
+  z<=0 share=65.1%  median z=-0.31
+  rows clearing S>=0.70 (raw-z formula): 61888/593065 (10.44%)
+
+E3: Setup 4 rolling 90d-high self-reference after breakout (from 2022-01-01)
+Traceback (most recent call last):
+  File "D:\Code\downwardsp\scripts\empirical_review_cr001.py", line 193, in <module>
+    e3_setup4()
+  File "D:\Code\downwardsp\scripts\empirical_review_cr001.py", line 96, in e3_setup4
+    n_bo = con.execute(f"""
+           ^^^^^^^^^^^^^^^^
+_duckdb.BinderException: Binder Error: Referenced column "close" not found in FROM clause!
+Candidate bindings: "pc"
+
+LINE 14:         WHERE close > 1.02*ph AND (pc IS NULL OR pc <= 1.02*ph)
+                       ^

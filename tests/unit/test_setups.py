@@ -75,6 +75,7 @@ class TestFeatures:
             "close_adj": closes,
             "high_adj": highs,
             "low_adj": lows,
+            "open_adj": [c * 0.995 for c in closes],  # green candles by default
             "volume_adj": [float(v) for v in volumes],
             "delivery_adj": [float(d) for d in deliveries],
         })
@@ -123,6 +124,67 @@ class TestFeatures:
         rows = self._rows([100.0] * 80)
         assert rows["imom"].isna().all()
 
+    def test_shock_a_5d_survives_5_sessions(self):
+        # CR-2026-001 Issue 1: the shock happened 3 sessions AGO; day T is the
+        # dry-up. The rolling flag must still read 1 on day T.
+        closes = [100.0] * 40
+        dlvs = [50_000] * 40
+        dlvs[-3] = 120_000  # >= 2.2x sma20_delivery on a green candle
+        rows = self._rows(closes, deliveries=dlvs)
+        assert rows["shock_a_5d"].iloc[-3] == 1.0
+        assert rows["shock_a_5d"].iloc[-1] == 1.0  # within the 5-session lookback
+        # Early rows: NULL (insufficient history) — NULL never matches.
+        assert pd.isna(rows["shock_a_5d"].iloc[10])
+
+    def test_z15_count_3d_counts_shock_days(self):
+        closes = [100.0] * 40
+        dlvs = [50_000] * 40
+        dlvs[-3] = 120_000
+        rows = self._rows(closes, deliveries=dlvs)
+        # The shock day has z >= 1.5, so the 3-session window ending today
+        # still counts it.
+        assert rows["z15_count_3d"].iloc[-1] >= 1.0
+        assert pd.isna(rows["z15_count_3d"].iloc[10])  # NULL pre-history
+
+    def test_breakout_anchor_frozen_at_breakout(self):
+        # CR-2026-001 Issue 2: the anchor is the PRE-breakout 90-session
+        # ceiling, frozen on breakout day B; breakout_age advances per session.
+        n = 140
+        closes = [100.0] * n
+        highs = [100.5] * n
+        lows = [99.5] * n
+        closes[-5] = 103.0                       # breakout: > 1.02 * 100.5
+        closes[-4:] = [103.2, 103.0, 102.8, 102.6]
+        highs[-4:] = [103.4, 103.3, 103.1, 103.0]
+        lows[-2] = 102.5
+        lows[-1] = 102.4
+        rows = self._rows(closes, highs, lows)
+        assert rows["breakout_age"].iloc[-5] == 0.0
+        assert rows["breakout_anchor_90"].iloc[-5] == pytest.approx(100.5)
+        assert rows["breakout_age"].iloc[-1] == pytest.approx(4.0)
+        # FROZEN: 4 sessions later the anchor is still the pre-breakout
+        # ceiling — the rolling base_high_90 would read ~103.4 here.
+        assert rows["breakout_anchor_90"].iloc[-1] == pytest.approx(100.5)
+        assert pd.isna(rows["breakout_age"].iloc[50])
+
+    def test_features_schema_drift_healed_on_reopen(self, tmp_path):
+        # E5: a stale features table (pre-CR-001 columns) is dropped and
+        # rebuilt with the current FEATURE_COLS on open.
+        import duckdb
+        con = duckdb.connect(str(tmp_path / "drift.duckdb"))
+        con.execute("CREATE TABLE features (symbol VARCHAR, date DATE, "
+                    "sma20_vol DOUBLE, PRIMARY KEY(symbol, date))")
+        con.close()
+        store2 = MarketStore(tmp_path / "drift.duckdb")
+        try:
+            cols = {r[0] for r in store2.con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'features'").fetchall()}
+            assert {"shock_a_5d", "z15_count_3d",
+                    "breakout_anchor_90", "breakout_age"} <= cols
+        finally:
+            store2.close()
+
 
 # ---------------------------------------------------------------------------
 # Setup predicates (one engineered trigger per setup)
@@ -136,9 +198,11 @@ def _row_with(**overrides):
         "sma200": 90.0, "sma200_slope5": 1.0,
         "sma20_vol": 100_000.0, "sma20_delivery": 50_000.0,
         "sd20_delivery": 5_000.0, "delivery_z": 0.0,
+        "shock_a_5d": 0.0, "z15_count_3d": 0.0,
         "pv5": 0.02, "pv_percentile": 0.5, "rsi2": 50.0,
         "rs_percentile": 0.5, "imom_percentile": 0.5,
         "base_low_90": 95.0, "base_high_90": 105.0, "high_52w": 105.0,
+        "breakout_anchor_90": None, "breakout_age": None,
         "prev_low": 99.5,
         "symbol": "TEST", "date": date(2026, 6, 1),
     }
@@ -148,14 +212,13 @@ def _row_with(**overrides):
 
 class TestSetupPredicates:
     def test_setup1_vcp_squeeze_triggers(self):
-        # Single shock day: delivery >= 2.2x SMA20 AND green candle, dry volume,
-        # narrow candle
+        # Shock happened earlier in the week (rolling flag), day T is the dry,
+        # squeezed bar — the CR-2026-001 fix. The same-day version of this
+        # predicate fired 102 times in 2.3M windows; the fixed one ~8.5%.
         row = _row_with(
-            delivery_adj=120_000.0,      # >= 2.2 * 50k
-            open_adj=99.9, close_adj=100.2,  # green
-            volume_adj=60_000.0,         # <= 0.65 * 100k
+            shock_a_5d=1.0,
+            volume_adj=60_000.0,         # <= 0.65 * 100k (day-T dry-up)
             high_adj=100.4, low_adj=99.8,  # range ~0.6% <= 1.5%
-            delivery_z=2.4,
         )
         params = evaluate_setup1_vcp_squeeze(row)
         assert params is not None
@@ -163,8 +226,18 @@ class TestSetupPredicates:
         # min(Low_T, Low_{T-1}) = min(99.8, 99.5 default prev_low) = 99.5
         assert params["structural_stop"] == pytest.approx(99.5)
 
+    def test_setup1_condition_b_iceberg_two_of_three(self):
+        row = _row_with(
+            z15_count_3d=2.0,
+            volume_adj=60_000.0, high_adj=100.4, low_adj=99.8,
+        )
+        params = evaluate_setup1_vcp_squeeze(row)
+        assert params is not None
+
     def test_setup1_rejects_when_no_accumulation(self):
-        row = _row_with(volume_adj=60_000.0, high_adj=100.4, low_adj=99.8)
+        # Dry + squeezed but no rolling accumulation flags -> no match.
+        row = _row_with(shock_a_5d=0.0, z15_count_3d=0.0,
+                        volume_adj=60_000.0, high_adj=100.4, low_adj=99.8)
         assert evaluate_setup1_vcp_squeeze(row) is None
 
     def test_setup2_rubberband_triggers(self):
@@ -201,24 +274,58 @@ class TestSetupPredicates:
         assert evaluate_setup3_rs_base(row, nifty50_above_ema=True) is None
 
     def test_setup4_anchor_retest_triggers(self):
-        # base_low 95 -> breakout level 96.9; today's low retests within 0.8%
-        # candle: open 97.4, close 97.5, low 96.9, high 97.8 -> green, and the
-        # lower shadow (min(O,C)-L)/(H-L) = 0.5/0.9 = 0.556 >= 0.40 (rejection tail)
+        # CR-2026-001 Issue 2: anchor = FROZEN pre-breakout 90-session ceiling
+        # (100.0), retest 4 sessions later. Low touches the anchor exactly,
+        # close holds above, green candle with a 57% lower rejection shadow,
+        # dry volume.
         row = _row_with(
-            base_low_90=95.0,
-            low_adj=96.9,                # |96.9 - 96.9| / 96.9 = 0% <= 0.8%
-            close_adj=97.5, open_adj=97.4,  # green
-            high_adj=97.8,
+            breakout_anchor_90=100.0, breakout_age=4.0,
+            low_adj=100.0,
+            open_adj=100.8, close_adj=101.0, high_adj=101.4,
             volume_adj=50_000.0,         # <= 0.55 * 100k
         )
         params = evaluate_setup4_anchor_retest(row)
         assert params is not None
         assert params["max_stop_pct"] == 0.020  # tighter anchor gate
+        assert params["structural_stop"] == pytest.approx(99.8)  # 100 * 0.998
+
+    def test_setup4_never_fires_off_rolling_base_high_alone(self):
+        # The CR's literal fix (rolling base_high_90) is rejected: without the
+        # frozen breakout anchor + age, the predicate must return None. The
+        # rolling max includes the rally bars (measured +3.5% above the true
+        # ceiling by day 1 post-breakout).
+        row = _row_with(
+            base_high_90=101.0, breakout_anchor_90=None, breakout_age=None,
+            low_adj=100.9, open_adj=101.3, close_adj=101.5, high_adj=101.7,
+            volume_adj=50_000.0,
+        )
+        assert evaluate_setup4_anchor_retest(row) is None
+
+    def test_setup4_rejects_breakout_too_fresh(self):
+        # age=1 is outside the 3-7 retest window -> None (predicates gate on
+        # the window; the feature carries 0..30 and the predicate filters).
+        row = _row_with(
+            breakout_anchor_90=100.0, breakout_age=1.0,
+            low_adj=100.0, open_adj=100.8, close_adj=101.0, high_adj=101.4,
+            volume_adj=50_000.0,
+        )
+        assert evaluate_setup4_anchor_retest(row) is None
+
+    def test_setup4_rejects_stale_breakout(self):
+        # age=12 is past the 7-session retest window -> None.
+        row = _row_with(
+            breakout_anchor_90=100.0, breakout_age=12.0,
+            low_adj=100.0, open_adj=100.8, close_adj=101.0, high_adj=101.4,
+            volume_adj=50_000.0,
+        )
+        assert evaluate_setup4_anchor_retest(row) is None
 
     def test_setup4_rejects_no_retest(self):
-        row = _row_with(base_low_90=95.0, low_adj=99.0,
-                        close_adj=99.5, open_adj=98.5, high_adj=100.0,
-                        volume_adj=50_000.0)
+        row = _row_with(
+            breakout_anchor_90=100.0, breakout_age=5.0,
+            low_adj=103.0, close_adj=103.5, open_adj=103.2, high_adj=103.8,
+            volume_adj=50_000.0,
+        )
         assert evaluate_setup4_anchor_retest(row) is None
 
     def test_setup5_residual_momentum_triggers(self):
@@ -246,14 +353,13 @@ class TestSetupPredicates:
 
     def test_setup1_stop_floors_at_prev_low(self):
         row = _row_with(
-            delivery_adj=120_000.0, open_adj=99.9, close_adj=100.2,
+            shock_a_5d=1.0,
             volume_adj=60_000.0, high_adj=100.4, low_adj=100.3,
-            prev_low=98.0, delivery_z=2.4,
+            prev_low=98.0,
         )
         params = evaluate_setup1_vcp_squeeze(row)
         assert params is not None
         assert params["structural_stop"] == pytest.approx(98.0)  # min(T, T-1)
-
     def test_null_features_never_match(self):
         empty = pd.Series({"symbol": "X", "date": date(2026, 6, 1)})
         for evaluator in (evaluate_setup1_vcp_squeeze, evaluate_setup2_rubberband,
@@ -271,13 +377,21 @@ class TestSetupPredicates:
 
 class TestRanking:
     def test_s_runner_formula(self):
-        # 0.35*3.0 + 0.35*0.9 + 0.30*(1-0.1) = 1.05 + 0.315 + 0.27 = 1.635
-        assert compute_s_runner(3.0, 0.9, 0.1) == pytest.approx(1.635)
+        # CR-2026-001 Issue 3: z is normalized to [0, 1] via z/3.
+        # 0.35*1.0 + 0.35*0.9 + 0.30*(1-0.1) = 0.35 + 0.315 + 0.27 = 0.935
+        assert compute_s_runner(3.0, 0.9, 0.1) == pytest.approx(0.935)
+
+    def test_s_runner_dry_day_no_longer_penalized(self):
+        # A dry-up day has z <= 0: the negative z must contribute 0, not a
+        # penalty. Dry-day ceiling = 0.35*0 + 0.35*1 + 0.30*1 = 0.65 — which
+        # is why S_RUNNER_MIN moved from 0.70 (total lockout) to 0.45.
+        assert compute_s_runner(-1.2, 1.0, 0.0) == pytest.approx(0.65)
+        assert compute_s_runner(0.0, 1.0, 0.0) == pytest.approx(0.65)
 
     def test_s_runner_null_terms_score_zero(self):
         assert compute_s_runner(None, None, None) == 0.0
-        # NULL pv treated as worst (1.0) -> contributes 0
-        assert compute_s_runner(2.0, 0.9, None) == pytest.approx(0.7 + 0.315)
+        # NULL pv treated as worst (1.0) -> contributes 0; z 2.0 -> 2/3 norm.
+        assert compute_s_runner(2.0, 0.9, None) == pytest.approx(0.35 * 2 / 3 + 0.315)
 
     def _store_with_universe(self, tmp_path):
         """Store with NIFTY indices + two symbols so cross-sectional ranks exist."""
@@ -318,8 +432,9 @@ class TestRanking:
 
         # SHOCK: idiosyncratic runner (Setup 5) - zig-zag uptrend whose residual
         # momentum tops the cross-section, ending on a delivery shock + green
-        # candle. S_runner = 0.35*3.0 + 0.35*1.0 + 0.30*(1 - PV%) >= 1.40 clears
-        # the 0.70 bar; UNIV (subdued delivery by design, z = 0) cannot.
+        # candle. S_runner = 0.35*(3/3) + 0.35*1.0 + 0.30*(1 - 1.0) = 0.70
+        # clears the 0.45 bar; UNIV's Setup 2 (subdued delivery, z = 0) caps
+        # at ~0.32 and is filtered by design.
         n = len(sessions)
         # Odd indices up => the session before the final shock day is a DOWN
         # day, so its low sits ~1.7% below the close (inside the 2.2% gate).
@@ -378,13 +493,17 @@ class TestRanking:
             cands = evaluate_and_rank(feats, nifty50_above_ema=True)
             assert len(cands) >= 1
             top = cands[0]
-            # Only SHOCK clears the 0.70 conviction bar; UNIV's subdued-delivery
-            # Setup 2 caps S_runner near 0.33 and is filtered by design.
+            # SHOCK (Setup 5, S ~= 0.70) tops the book; UNIV's Setup 2 fires
+            # the predicate (funnel log shows it) but its S ~= 0.32 is below
+            # the 0.45 bar.
             assert top.symbol == "SHOCK"
             assert top.setup == SetupID.SETUP_5_RESIDUAL_MOM
-            assert top.s_runner >= 0.70
+            assert top.s_runner >= 0.45
             assert all(c.symbol != "UNIV" for c in cands)
             assert top.structural_stop_pct <= top.max_stop_pct + 1e-7
+            # CR-2026-001 Issue 4: every candidate carries both GTT stop legs.
+            assert top.stop_trigger == pytest.approx(top.structural_stop)
+            assert 0 < top.stop_limit < top.stop_trigger
             # persistence: features land in DuckDB
             n = store.con.execute(
                 "SELECT count(*) FROM features WHERE date = ?",
@@ -406,3 +525,41 @@ class TestRanking:
             assert len(symbols) == len(set(symbols))
         finally:
             store.close()
+
+    def test_multi_setup_candidacy(self):
+        """CR-2026-001 acceptance #3: Setups other than 5 qualify on their own
+        merits. A Setup-2 rubber-band row (dry day, z <= 0) and a Setup-5
+        shock row both clear the normalized 0.45 bar; Setup 4's frozen-anchor
+        row does too when its score terms are strong."""
+        def _feat_row(**kw):
+            base = {
+                "symbol": "X", "date": date(2026, 6, 1), "close_raw": 100.0,
+                "close_adj": 100.0, "open_adj": 100.0, "high_adj": 100.5,
+                "low_adj": 99.5, "volume_adj": 100_000.0,
+                "delivery_adj": 50_000.0, "sma200": 90.0, "sma200_slope5": 1.0,
+                "sma20_vol": 100_000.0, "sma20_delivery": 50_000.0,
+                "sd20_delivery": 5_000.0, "delivery_z": 0.0,
+                "shock_a_5d": 0.0, "z15_count_3d": 0.0,
+                "pv5": 0.02, "pv_percentile": 0.5, "rsi2": 50.0,
+                "rs_percentile": 0.5, "imom_percentile": 0.5,
+                "base_low_90": 95.0, "base_high_90": 105.0, "high_52w": 105.0,
+                "breakout_anchor_90": None, "breakout_age": None,
+                "prev_low": 99.5,
+            }
+            base.update(kw)
+            return pd.Series(base)
+
+        s2_row = _feat_row(symbol="RUBBER", rsi2=5.0, delivery_adj=40_000.0,
+                           imom_percentile=1.0, pv_percentile=0.0)
+        s5_row = _feat_row(symbol="MOMO", imom_percentile=0.97,
+                           delivery_adj=110_000.0,
+                           open_adj=100.0, close_adj=101.0)
+        cands = evaluate_and_rank(pd.DataFrame([s2_row, s5_row]),
+                                  nifty50_above_ema=True)
+        by_setup = {c.setup: c for c in cands}
+        assert SetupID.SETUP_2_RUBBERBAND in by_setup, \
+            "Setup 2 must qualify: S = 0.35*1.0(imom) + 0.30*1.0(pv) = 0.65"
+        assert SetupID.SETUP_5_RESIDUAL_MOM in by_setup
+        for c in cands:
+            assert c.stop_trigger > 0 and c.stop_limit > 0
+            assert c.stop_limit < c.stop_trigger

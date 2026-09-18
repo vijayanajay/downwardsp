@@ -1,0 +1,38 @@
+
+E3: Setup 4 rolling 90d-high self-reference after breakout (from 2022-01-01)
+  breakout crossing events: 29868
+  days_since | n | avg% rolling90high above pre-breakout ceiling | worst%
+     0 |  1238 |   0.00% |    0.00%
+     1 |   940 |   3.47% |   20.00%
+     2 |   706 |   4.81% |   34.82%
+     3 |   703 |   4.64% |   45.20%
+     4 |   683 |   5.14% |   59.66%
+     5 |   674 |   5.70% |   45.19%
+     6 |   903 |   6.17% |   45.19%
+     7 |  1138 |   6.80% |   67.53%
+     8 |   897 |   7.78% |   75.88%
+     9 |   673 |   8.13% |   84.63%
+    10 |   668 |   7.90% |   91.36%
+
+E4: overnight gap-down distribution (buffer sizing), from 2022-01-01
+  sessions measured: 2299886
+  gap-downs: 638124 (27.7% of sessions)
+  gap-down quantiles: p50=-0.54%, p90=-0.06%, p99=-0.01%, p100=-0.00%
+  buffer 0.5%: gap-downs beyond = 335419 (14.584% of all sessions)
+  buffer 1.0%: gap-downs beyond = 191019 (8.306% of all sessions)
+  buffer 1.5%: gap-downs beyond = 117331 (5.102% of all sessions)
+  buffer 2.0%: gap-downs beyond = 75167 (3.268% of all sessions)
+  buffer 3.0%: gap-downs beyond = 35824 (1.558% of all sessions)
+
+E5: delivery <= volume invariant (from 2022-01-01)
+  rows=2303155: adj violations=0, raw violations=0
+
+E6: empirical fire-rates of CURRENT vs FIXED predicates (from 2022-01-01)
+  Setup 1 fixed (shock<=5d + dry T): 202834 fires / 2371471 windows (8.55309%); dry-T alone: 1080364 (45.56%)
+  Setup 2 predicate (rsi2<=10 + subdued dlv): 50217 fires / 535840 feature rows (9.3716%); rsi2<=10 alone: 73508 (13.718%)
+    of those: clear S>=0.70 today = 1; median S = 0.270
+  Setup 3 predicate (RS>=95pct + tight base + near 52w high): 120 fires / 84825 feature rows (0.1415%)
+    of those: clear S>=0.70 today = 13; median S = 0.553
+  Setup 4 fixed (breakout 3-7d ago + retest of PRE-breakout ceiling + hold + dry): 410 fires / 154673 rows (0.26508%); retest+hold w/o dry: 1195 (0.7726%)
+
+DONE

@@ -68,6 +68,13 @@ def _store_with_signal(tmp_path, n: int = 260) -> MarketStore:
         opens = [closes[0]] + closes[:-1]
         highs = [max(o, c) * 1.002 for o, c in zip(opens, closes)]
         lows = [min(o, c) * 0.998 for o, c in zip(opens, closes)]
+        if sym == "BANKX":
+            # CR-2026-001: with the fixed predicates the Setup 3 gate (top-RS,
+            # within 1.5% of the 52w high, <= 3% range) legitimately fired for
+            # BANKX mid-year in a 2-symbol universe. Keep the decoy a decoy:
+            # a ~5% intraday range fails Setup 3's consolidation cap forever.
+            highs = [max(o, c) * 1.025 for o, c in zip(opens, closes)]
+            lows = [min(o, c) * 0.975 for o, c in zip(opens, closes)]
         bars = pd.DataFrame({
             "symbol": sym, "date": sessions,
             "open": opens, "high": highs, "low": lows, "close": closes,
@@ -351,7 +358,7 @@ class TestEngine:
         expected_pnl = (t1_net + t2_net) - buy_cost
         assert pos.exit_proceeds - pos.entry_cost == pytest.approx(expected_pnl,
                                                                    rel=1e-9)
-        assert pos.exit_reason == ExitReason.STRUCTURAL_STOP_HIT.value
+        assert pos.exit_reason == ExitReason.TRAILING_STOP_HIT.value
 
     def test_end_of_run_force_exit_flattens_and_settles(self):
         book = SimBook(config=CFG, cash=CFG.capital.base_capital,

@@ -16,6 +16,8 @@ from typing import Optional
 
 import pandas as pd
 
+from nse_cash.core.constants import (BREAKOUT_RETEST_AGE_MAX,
+                                     BREAKOUT_RETEST_AGE_MIN)
 from nse_cash.core.types import SetupID
 
 _T = pd.Series  # one features-table row
@@ -48,14 +50,12 @@ def evaluate_setup1_vcp_squeeze(row: _T) -> Optional[dict]:
     if not (_v(row, "sma200_slope5") or -1e9) > 0:
         return None
 
-    # Accumulation: A) single shock in last 5 sessions, or B) Z >= 1.5 on 2 of last 3
-    # (A/B need history; feature table carries only day-T values, so shock-A is
-    # proxied by today's Z and dry-up; iceberg-B uses Z >= 1.5 today.)
-    dlv = _bar(row, "delivery_adj")
-    sma20d = _v(row, "sma20_delivery")
-    z = _v(row, "delivery_z")
-    shock_a = dlv is not None and sma20d is not None and dlv >= 2.20 * sma20d
-    shock_b = z is not None and z >= 1.50
+    # Accumulation: A) >= 1 delivery shock in the last 5 sessions (the shock
+    # and the dry-up are different days — the same-day version was a physical
+    # impossibility: measured 102 co-fires in 2.3M windows vs 207k shocks),
+    # or B) Z >= 1.5 on 2 of the last 3. Flags are rolling features.
+    shock_a = (_v(row, "shock_a_5d") or 0.0) >= 1.0
+    shock_b = (_v(row, "z15_count_3d") or 0.0) >= 2.0
     if not (shock_a or shock_b):
         return None
 
@@ -143,21 +143,28 @@ def evaluate_setup3_rs_base(row: _T, nifty50_above_ema: bool = True) -> Optional
 def evaluate_setup4_anchor_retest(row: _T) -> Optional[dict]:
     close, high, low, open_ = (_bar(row, "close_adj"), _bar(row, "high_adj"),
                                _bar(row, "low_adj"), _bar(row, "open_adj"))
-    base_low = _v(row, "base_low_90")
-    if None in (close, high, low, open_, base_low) or base_low <= 0:
+    # CR-2026-001 Issue 2: the anchor is the PRE-BREAKOUT 90-session ceiling,
+    # frozen at breakout day B (feature `breakout_anchor_90`), with the retest
+    # 3-7 sessions later (`breakout_age`). The CR's own fix — the rolling
+    # base_high_90 — includes the rally bars and by day 1 sits +3.5% above the
+    # true ceiling on average (measured on 29,868 breakouts), testing retests
+    # of the rally peak instead of the base. The old code's 1.02 * base_low_90
+    # fired 1.69% of windows: retests of the 90-day trough.
+    anchor = _v(row, "breakout_anchor_90")
+    age = _v(row, "breakout_age")
+    if None in (close, high, low, open_, anchor, age) or anchor <= 0:
         return None
-    breakout_level = 1.02 * base_low  # resistance ~ top of the 90-day base
-
-    # Breakout: closed above the base within the last 3-7 sessions.
-    # ponytail: features table stores day-T values only, so "broke out 3-7
-    # sessions ago" is proxied by close still holding above the level while
-    # today's volume has dried up (post-breakout retest signature). Upgrade
-    # path: carry breakout_age in the features table.
-    if not close > breakout_level:
+    # Retest window: 3-7 sessions after the breakout (measured fire rate
+    # 1.52% of windows on 2022+ data; the full setup is rarer by design).
+    if not (BREAKOUT_RETEST_AGE_MIN <= age <= BREAKOUT_RETEST_AGE_MAX):
         return None
+    breakout_level = anchor
 
-    # Support retest: today's low is within +/-0.8% of the breakout level
+    # Support retest: today's low is within +/-0.8% of the breakout level and
+    # holds above it.
     if not abs(low - breakout_level) / breakout_level <= 0.008:
+        return None
+    if not close >= breakout_level:
         return None
 
     # Volume dry-up on the retest

@@ -43,6 +43,13 @@ def make_position(**overrides) -> SimPosition:
     return SimPosition(**defaults)
 
 
+# CR-2026-001: config default buffer 1.5% -> stop trigger 98.00, limit leg
+# 98.0 * 0.985 = 96.53 -> tick-rounded 96.55. Every gap test below is
+# hand-computed against it.
+STOP_TRIGGER = 98.0
+STOP_LIMIT = 96.55
+
+
 def bar(d, o, h, l, c):
     return {"date": d, "open": o, "high": h, "low": l, "close": c}
 
@@ -126,13 +133,74 @@ class TestContinuation:
         return pos
 
     def test_gap_through_stop_exits_at_open_never_stop(self):
-        # Entered at 100.5, stop 98.0; next day opens 96.0 -> exit at 96.0.
+        # Entered at 100.5, stop 98.0; next day opens 96.0. The open is above
+        # the limit leg 96.53? NO — 96.0 < 96.53, but the day's high 97.5
+        # recovers through the limit -> fills AT THE LIMIT 96.53 (GTT rule b).
         pos = self._entered()
         pos.day_index = 1
         simulate_open_day(pos, bar(D2, 96.0, 97.5, 95.5, 97.0), CFG)
         stop = events_of(pos, EventType.STOP_HIT)[0]
-        assert stop.price == 96.0, "gap-down realizes the open, not the stop"
+        assert stop.price == STOP_LIMIT, \
+            "open below the limit leg fills on recovery at the limit"
         assert not pos.is_open
+
+    def test_gap_to_open_within_limit_fills_at_open(self):
+        # Open 96.8 >= limit leg 96.53 -> the sell limit crosses immediately:
+        # fill at the open 96.8 (GTT rule a), never at the trigger.
+        pos = self._entered()
+        pos.day_index = 1
+        simulate_open_day(pos, bar(D2, 96.8, 97.5, 96.2, 97.0), CFG)
+        stop = events_of(pos, EventType.STOP_HIT)[0]
+        assert stop.price == 96.8
+        assert not pos.is_open
+
+    def test_gap_beyond_limit_leg_survives_then_stall_exits(self):
+        # Open 95.0 is below the limit leg 96.53 AND the day's high 96.4 never
+        # reaches it -> GTT_STOP_UNFILLED: the position survives the session
+        # (GTT rule c). Day-2 close 95.6 < stall floor 101.304 -> the stall
+        # rule exits at the close the same day.
+        pos = self._entered()
+        pos.day_index = 1
+        simulate_open_day(pos, bar(D2, 95.0, 96.4, 94.8, 95.6), CFG)
+        assert events_of(pos, EventType.GTT_STOP_UNFILLED)
+        stall = events_of(pos, EventType.STALL_EXITED)[0]
+        assert stall.price == 95.6
+        assert not pos.is_open
+
+    def test_gap_beyond_limit_leg_survives_to_next_session_stop(self):
+        # Unfilled day 2 that clears the stall floor, then day 3 opens back
+        # above the limit leg -> the still-armed stop fills at that open.
+        pos = self._entered()
+        pos.day_index = 1
+        simulate_open_day(pos, bar(D2, 95.0, 96.4, 94.8, 101.5), CFG)
+        assert events_of(pos, EventType.GTT_STOP_UNFILLED) and pos.is_open
+        pos.day_index = 2
+        simulate_open_day(pos, bar(D3, 97.2, 99.0, 96.9, 98.5), CFG)
+        stop = events_of(pos, EventType.STOP_HIT)[0]
+        assert stop.price == 97.2  # open 97.2 >= limit 96.53: fill at open
+
+    def test_recorded_stop_limit_overrides_config_buffer(self):
+        # A recorded GTT limit (from the CandidateSignal) is authoritative.
+        pos = simulate_entry_day(
+            make_position(stop_limit_raw=95.0),
+            bar(ENTRY_DAY, 100.5, 101.0, 99.5, 100.8), CFG)
+        pos.day_index = 1
+        # Open 96.0: below trigger 98.0, above recorded limit 95.0 -> open fill.
+        simulate_open_day(pos, bar(D2, 96.0, 97.0, 95.2, 96.5), CFG)
+        assert events_of(pos, EventType.STOP_HIT)[0].price == 96.0
+
+    def test_breakeven_gap_uses_relative_limit_leg(self):
+        # After a T1 fill the standing stop is the breakeven 100.5; the limit
+        # leg moves WITH it: 100.5 * 0.985 = 98.9925 -> tick 99.00.
+        pos = simulate_entry_day(make_position(),
+                                 bar(ENTRY_DAY, 100.5, 102.1, 99.9, 101.5), CFG)
+        assert pos.t1_filled and pos.pending_stop_raw == 100.5
+        pos.day_index = 1
+        # Day 2 opens 98.9 < 99.00; high 99.2 recovers -> fill at the limit 99.0.
+        simulate_open_day(pos, bar(D2, 98.9, 99.2, 98.5, 99.0), CFG)
+        stop = events_of(pos, EventType.STOP_HIT)[0]
+        assert stop.price == 99.0
+        assert stop.reason == ExitReason.TRAILING_STOP_HIT.value
 
     def test_same_day_stop_and_t2_target_stop_wins_and_flagged(self):
         pos = self._entered()
@@ -350,3 +418,24 @@ class TestCorporateAction:
         assert action_factor_for_date(actions, D3) == 0.9
         assert action_factor_for_date(actions, D4) is None
         assert action_factor_for_date(pd.DataFrame(), D2) is None
+
+
+class TestGttStopLimit:
+    """CR-2026-001 Issue 4: the GTT stop is trigger + buffered limit."""
+
+    def test_entry_day_open_below_stop_fills_at_open_when_above_limit(self):
+        # Entry open 97.5 < trigger 98.0 but >= limit 96.53 -> immediate
+        # scratch at the open (unchanged from the pre-CR behavior).
+        pos = simulate_entry_day(make_position(),
+                                 bar(ENTRY_DAY, 97.5, 98.2, 97.0, 98.0), CFG)
+        stops = events_of(pos, EventType.STOP_HIT)
+        assert len(stops) == 2 and all(s.price == 97.5 for s in stops)
+
+    def test_entry_day_open_below_limit_survives_entry_session(self):
+        # Extreme case: entry open 96.0 < limit 96.53 and high never reaches
+        # it -> the stop cannot execute on day 1; the position is carried.
+        pos = simulate_entry_day(make_position(),
+                                 bar(ENTRY_DAY, 96.0, 96.4, 95.8, 96.3), CFG)
+        assert events_of(pos, EventType.ENTRY_FILLED)
+        assert events_of(pos, EventType.GTT_STOP_UNFILLED)
+        assert pos.is_open

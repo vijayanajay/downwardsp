@@ -124,6 +124,12 @@ class CandidateSignal(BaseModel):
     delivery_z: float = 0.0
     imom_percentile: float = 0.0
     pv_percentile: float = 1.0
+    # CR-2026-001 Issue 4: the GTT stop as TWO Kite inputs (raw rupees, unticked
+    # — the sheet/ledger round to the ₹0.05 tick). trigger = structural stop;
+    # limit = trigger * (1 - risk.gtt_stop_limit_buffer) so a gap-down open can
+    # never leave the stop sell unexecuted.
+    stop_trigger: float = 0.0
+    stop_limit: float = 0.0
 
 
 class TradeOrder(BaseModel):

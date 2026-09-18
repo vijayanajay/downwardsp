@@ -114,13 +114,18 @@ def run_record_signals(ctx: click.Context, date_opt: Date | None) -> None:
                 tranche1_target=cand.entry_ref * (1 + cand.tranche1_target_pct),
                 tranche2_target=cand.entry_ref * (1 + cand.tranche2_target_pct),
                 max_gap_pct=config.risk.max_gap_entry,
-                tranche1_qty=qty // 2, tranche2_qty=qty - qty // 2)
+                tranche1_qty=qty // 2, tranche2_qty=qty - qty // 2,
+                stop_limit=cand.stop_limit or None)
             added += 1
+            stop_trig = round_to_tick(cand.structural_stop)
+            stop_lim = round_to_tick(cand.stop_limit) if cand.stop_limit > 0 else \
+                round_to_tick(cand.structural_stop
+                              * (1.0 - config.risk.gtt_stop_limit_buffer))
             console.print(
                 f"[green]recorded[/] {trade_id} slot {slot} — "
                 f"T1 ₹{round_to_tick(cand.entry_ref * (1 + cand.tranche1_target_pct)):,.2f} "
                 f"T2 ₹{round_to_tick(cand.entry_ref * (1 + cand.tranche2_target_pct)):,.2f} "
-                f"stop ₹{round_to_tick(cand.structural_stop):,.2f} "
+                f"stop trigger ₹{stop_trig:,.2f} / limit ₹{stop_lim:,.2f} "
                 f"max entry ₹{round_to_tick(cand.entry_ref * (1 + config.risk.max_gap_entry)):,.2f}")
         console.print(f"[bold]{added} signal(s) recorded, {skipped} already "
                       "in the book.[/] Place orders from the sheet; record "
@@ -150,10 +155,14 @@ def run_record_fill(ctx: click.Context, symbol: str, price: float,
                              "re-record with a unique symbol or delete stale rows")
         trade = matches[0]
         led.record_fill(trade["trade_id"], price, d)
+        stop = trade["structural_stop"]
+        stop_lim = trade.get("stop_limit") or \
+            round_to_tick(stop * (1.0 - config.risk.gtt_stop_limit_buffer))
         console.print(
             f"[green]fill recorded[/] {trade['trade_id']}: {price} × "
             f"{trade['tranche1_qty'] + trade['tranche2_qty']} on {d}. "
-            "Place the two GTT OCO sells per the sheet.")
+            f"Place the two GTT OCO sells per the sheet: trigger ₹{round_to_tick(stop):,.2f} "
+            f"/ limit ₹{round_to_tick(stop_lim):,.2f} on both.")
     finally:
         led.close()
 
@@ -173,9 +182,12 @@ def run_record_exit(ctx: click.Context, symbol: str, price: float,
         seq = led.record_exit(trade["trade_id"], price, d, reason.upper())
         pos = led.position(trade)
         if pos.is_open:
+            be_lim = round_to_tick(pos.entry_price_raw
+                                   * (1.0 - config.risk.gtt_stop_limit_buffer))
             console.print(
                 f"[green]recorded[/] (seq {seq}). {trade['trade_id']}: T1 filled — "
-                f"modify GTT 2 stop trigger to breakeven ₹{round_to_tick(pos.entry_price_raw):,.2f}.")
+                f"modify GTT 2 stop trigger to breakeven ₹{round_to_tick(pos.entry_price_raw):,.2f} "
+                f"/ limit ₹{be_lim:,.2f}.")
         else:
             console.print(
                 f"[green]recorded[/] (seq {seq}). {trade['trade_id']} closed at "

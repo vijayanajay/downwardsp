@@ -90,6 +90,7 @@ def decide_entries(store, config, trade_date: Date,
         candidates = evaluate_and_rank(
             feat[~feat["symbol"].isin(excluded)],
             nifty50_above_ema=regime.nifty50_above_ema,
+            gtt_stop_limit_buffer=config.risk.gtt_stop_limit_buffer,
         )
 
         for cand in candidates:

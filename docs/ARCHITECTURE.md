@@ -47,6 +47,7 @@ tests/integration/test_live_backtest_equivalence.py.
 | Stage-4 gates (capacity, sector, gap, risk) | `funnel/stage4_gate.py` | `test_stage4_gate.py` |
 | Entry day (gap ceiling, gap-down fill, same-day stop) | `fill_model.simulate_entry_day` | `test_fill_model.py`, `test_engine.py` |
 | Continuation days (stops, targets, stall, day-5) | `fill_model.simulate_open_day` | `test_fill_model.py` |
+| GTT gap-through stop (CR-2026-001): fill at open ≥ limit leg; fill at the limit leg on intraday recovery; gap beyond it all day → `GTT_STOP_UNFILLED`, position carried to stall/time rules. Limit leg = standing stop × (1 − `risk.gtt_stop_limit_buffer`), moves with breakeven. | `fill_model._gap_through_stop` | `test_fill_model.py::TestGttStopLimit` |
 | Intrabar pessimism (stop wins), breakeven arming | `fill_model._exit_all`, `refresh_stops_eod` | `test_fill_model.py` |
 | Mid-trade corporate actions | `fill_model._apply_corporate_action` | `test_fill_model.py` |
 | Position sizing (net of buy friction) | `engine.slot_quantity` | `test_live_backtest_equivalence.py` |

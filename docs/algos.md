@@ -2,7 +2,7 @@
 
 ## NSE High-Conviction Cash Swing Setups (Institutional Grade)
 
-* **Document Version:** 4.0 (Production Blueprint - Kailash Nadh Pragmatic Architecture Edition)
+* **Document Version:** 4.1 (CR-2026-001 sync: normalized S_runner, frozen Setup-4 anchor, GTT stop-limit buffer)
 * **Target Asset Class:** Indian Equities (NSE Cash Segment / `EQ` Series Only)
 * **Execution Timing:** **10:00 AM IST** (Post-Opening Price Discovery & Spread Stabilization; Manual Execution via Dual-GTT OCO)
 * **Holding Horizon:** **2 to 5 Trading Days**
@@ -26,13 +26,13 @@
 ### 1.2 Mathematical Formulation: Asymmetric Runner Skew Score ($S_{\text{runner}}$)
 Every qualifying candidate at Stage 3 is scored using the composite runner formula:
 
-$$S_{\text{runner}} = 0.35 \times Z_{\text{Delivery}} + 0.35 \times \text{iMOM}_{\text{Percentile}} + 0.30 \times (1 - \text{PV}_{\text{Percentile}})$$
+$$S_{\text{runner}} = 0.35 \times \frac{\max(0, Z_{\text{Delivery}})}{3} + 0.35 \times \text{iMOM}_{\text{Percentile}} + 0.30 \times (1 - \text{PV}_{\text{Percentile}})$$
 
 * Where:
-  * $Z_{\text{Delivery}}$: 30-day standardized delivery volume shock ($Z \ge +1.5\sigma$).
+  * $Z_{\text{Delivery}}$: 20-day standardized delivery volume shock, winsorized at $+3\sigma$ and normalized to $[0, 1]$ (CR-2026-001: a dry-up day has $Z \le 0$; the normalized term contributes 0 instead of a penalty).
   * $\text{iMOM}_{\text{Percentile}}$: 36-day residual momentum percentile in Top 500 universe ($0.0 \text{ to } 1.0$).
   * $\text{PV}_{\text{Percentile}}$: 5-day Parkinson volatility percentile relative to 60-day history (lower is better, range compression).
-* Candidates with $S_{\text{runner}} \ge \mathbf{0.70}$ are prioritized for 10:00 AM execution.
+* Candidates with $S_{\text{runner}} \ge \mathbf{0.45}$ are prioritized for 10:00 AM execution. (CR-2026-001: the original 0.70 bar mathematically precluded every dry-volume setup — measured: of 50,217 Setup-2 predicate fires, exactly 1 cleared it. 0.45 admits ~8.1% of Setup-2 fires and 72.5% of Setup-3 fires on 593k real feature rows. Every scan logs per-setup funnel counts so the next re-freeze is an evidence decision.)
 
 ```
                              THE 5-SETUP ORTHOGONAL CATALOG
@@ -136,8 +136,8 @@ Stocks outperforming 95% of the NIFTY 500 universe during broad market consolida
 When an established quality liquid stock breaks out of a 3-to-6 month horizontal consolidation on heavy delivery and subsequently pulls back for 1 to 2 sessions on dried-up volume to retest the previous resistance-turned-support level, institutions aggressively defend this zone. This offers the cleanest mathematical risk-to-reward because the invalidation anchor is directly below entry.
 
 #### 2. Mathematical Rules
-1. **Base Breakout Confirmation (within last 3 to 7 sessions):** Stock broke above its rolling 90-day resistance level on $\text{Delivery\_Qty} \ge 2.0 \times \text{SMA}_{20}$.
-2. **Support Retest:** Day $T$ Low touches within $\pm 0.8\%$ of the breakout level and holds above it.
+1. **Base Breakout Confirmation (within last 3 to 7 sessions):** Stock closed above $1.02 \times$ its prior 90-session resistance ceiling (CR-2026-001: the anchor is the PRE-breakout ceiling, FROZEN at the breakout day — the rolling 90-day high includes the rally bars and would test retests of the rally peak, measured +3.5% above the true ceiling by day 1). The retest happens 3 to 7 sessions after that breakout.
+2. **Support Retest:** Day $T$ Low touches within $\pm 0.8\%$ of the frozen breakout level and holds above it.
 3. **Volume Dry-Up on Retest:**
    $$\text{Volume}_T \le 0.55 \times \text{SMA}_{20}(\text{Volume})$$
 4. **Intraday Rejection Tail:** $\text{Close}_T > \text{Open}_T$ and lower shadow $\ge 40\%$ of daily candle range.
