@@ -320,13 +320,19 @@ def compute_metrics(store, result, index_name: str = "NIFTY 500") -> dict:
     setup_pnl, setup_counts = setup_breakdown(trades)
 
     # BRD §10.1 rows consume net-percent per trade: win_stats returns rupee
-    # averages; percent-of-entry needs the entry price alongside.
+    # averages; the percent must be on CAPITAL DEPLOYED (entry_cost, the
+    # friction-inclusive buy value of the whole position), not per-share
+    # entry_price — dividing position P&L by a per-share price inflated every
+    # row by the share count (~350x on a 5-lakh book; measured on the 2023+
+    # walk-forward before the fix).
     filled = trades[trades["entry_price"].notna()] if not trades.empty else trades
 
     def _avg_net_pct(df: pd.DataFrame) -> float | None:
         if df.empty:
             return None
-        return round(float((df["realized_pnl"] / df["entry_price"]
+        if "entry_cost" not in df.columns or not (df["entry_cost"] > 0).all():
+            return None  # no honest capital denominator -> no number
+        return round(float((df["realized_pnl"] / df["entry_cost"]
                             * 100.0).mean()), 4)
 
     wins = filled[filled["realized_pnl"] > 0] if not filled.empty else filled

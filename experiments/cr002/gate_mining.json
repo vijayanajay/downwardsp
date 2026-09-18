@@ -1,0 +1,498 @@
+{
+  "book": {
+    "n": 216,
+    "win": 0.3287037037037037,
+    "mean_ret": -0.3424388440380331
+  },
+  "gates": [
+    {
+      "gate": "delivery_z>=1",
+      "n_in": 37,
+      "n_out": 179,
+      "win_in": 0.243,
+      "win_out": 0.346,
+      "ret_in": -0.293,
+      "ret_out": -0.353,
+      "spread": 0.059,
+      "small_n": false
+    },
+    {
+      "gate": "delivery_z>=0",
+      "n_in": 53,
+      "n_out": 163,
+      "win_in": 0.283,
+      "win_out": 0.344,
+      "ret_in": -0.346,
+      "ret_out": -0.341,
+      "spread": -0.005,
+      "small_n": false
+    },
+    {
+      "gate": "delivery_z<0 (dry)",
+      "n_in": 163,
+      "n_out": 53,
+      "win_in": 0.344,
+      "win_out": 0.283,
+      "ret_in": -0.341,
+      "ret_out": -0.346,
+      "spread": 0.005,
+      "small_n": false
+    },
+    {
+      "gate": "imom>=p90",
+      "n_in": 95,
+      "n_out": 121,
+      "win_in": 0.316,
+      "win_out": 0.339,
+      "ret_in": -0.402,
+      "ret_out": -0.296,
+      "spread": -0.106,
+      "small_n": false
+    },
+    {
+      "gate": "imom>=p50",
+      "n_in": 210,
+      "n_out": 6,
+      "win_in": 0.338,
+      "win_out": 0.0,
+      "ret_in": -0.323,
+      "ret_out": -1.018,
+      "spread": 0.695,
+      "small_n": true
+    },
+    {
+      "gate": "imom<p50",
+      "n_in": 6,
+      "n_out": 210,
+      "win_in": 0.0,
+      "win_out": 0.338,
+      "ret_in": -1.018,
+      "ret_out": -0.323,
+      "spread": -0.695,
+      "small_n": true
+    },
+    {
+      "gate": "pv<=p30 (squeeze)",
+      "n_in": 157,
+      "n_out": 59,
+      "win_in": 0.338,
+      "win_out": 0.305,
+      "ret_in": -0.335,
+      "ret_out": -0.362,
+      "spread": 0.027,
+      "small_n": false
+    },
+    {
+      "gate": "pv>=p70 (expansion)",
+      "n_in": 11,
+      "n_out": 205,
+      "win_in": 0.364,
+      "win_out": 0.327,
+      "ret_in": -0.103,
+      "ret_out": -0.355,
+      "spread": 0.252,
+      "small_n": true
+    },
+    {
+      "gate": "rsi2<=10",
+      "n_in": 116,
+      "n_out": 100,
+      "win_in": 0.328,
+      "win_out": 0.33,
+      "ret_in": -0.433,
+      "ret_out": -0.237,
+      "spread": -0.197,
+      "small_n": false
+    },
+    {
+      "gate": "rsi2 10-30",
+      "n_in": 5,
+      "n_out": 211,
+      "win_in": 0.0,
+      "win_out": 0.336,
+      "ret_in": -1.151,
+      "ret_out": -0.323,
+      "spread": -0.828,
+      "small_n": true
+    },
+    {
+      "gate": "rsi2>=70",
+      "n_in": 78,
+      "n_out": 138,
+      "win_in": 0.346,
+      "win_out": 0.319,
+      "ret_in": -0.252,
+      "ret_out": -0.394,
+      "spread": 0.142,
+      "small_n": false
+    },
+    {
+      "gate": "range_T<=2%",
+      "n_in": 95,
+      "n_out": 121,
+      "win_in": 0.295,
+      "win_out": 0.355,
+      "ret_in": -0.248,
+      "ret_out": -0.417,
+      "spread": 0.169,
+      "small_n": false
+    },
+    {
+      "gate": "range_T>=4%",
+      "n_in": 19,
+      "n_out": 197,
+      "win_in": 0.368,
+      "win_out": 0.325,
+      "ret_in": -0.636,
+      "ret_out": -0.314,
+      "spread": -0.321,
+      "small_n": true
+    },
+    {
+      "gate": "atr14%>=4%",
+      "n_in": 40,
+      "n_out": 176,
+      "win_in": 0.4,
+      "win_out": 0.312,
+      "ret_in": -0.465,
+      "ret_out": -0.315,
+      "spread": -0.151,
+      "small_n": false
+    },
+    {
+      "gate": "atr14%<=2.5%",
+      "n_in": 70,
+      "n_out": 146,
+      "win_in": 0.229,
+      "win_out": 0.377,
+      "ret_in": -0.223,
+      "ret_out": -0.4,
+      "spread": 0.177,
+      "small_n": false
+    },
+    {
+      "gate": "near 52w high (>=98%)",
+      "n_in": 52,
+      "n_out": 164,
+      "win_in": 0.385,
+      "win_out": 0.311,
+      "ret_in": -0.33,
+      "ret_out": -0.346,
+      "spread": 0.017,
+      "small_n": false
+    },
+    {
+      "gate": "NOT near 52w high",
+      "n_in": 164,
+      "n_out": 52,
+      "win_in": 0.311,
+      "win_out": 0.385,
+      "ret_in": -0.346,
+      "ret_out": -0.33,
+      "spread": -0.017,
+      "small_n": false
+    },
+    {
+      "gate": "rs_pctile>=95",
+      "n_in": 34,
+      "n_out": 182,
+      "win_in": 0.441,
+      "win_out": 0.308,
+      "ret_in": -0.427,
+      "ret_out": -0.327,
+      "spread": -0.1,
+      "small_n": false
+    },
+    {
+      "gate": "nifty>EMA20 (risk-on)",
+      "n_in": 216,
+      "n_out": 0,
+      "win_in": 0.329,
+      "win_out": null,
+      "ret_in": -0.342,
+      "ret_out": null,
+      "spread": null,
+      "small_n": true
+    },
+    {
+      "gate": "nifty<=EMA20 (risk-off)",
+      "n_in": 0,
+      "n_out": 216,
+      "win_in": null,
+      "win_out": 0.329,
+      "ret_in": null,
+      "ret_out": -0.342,
+      "spread": null,
+      "small_n": true
+    },
+    {
+      "gate": "breadth>=55%",
+      "n_in": 200,
+      "n_out": 16,
+      "win_in": 0.325,
+      "win_out": 0.375,
+      "ret_in": -0.343,
+      "ret_out": -0.34,
+      "spread": -0.003,
+      "small_n": true
+    },
+    {
+      "gate": "breadth<=45%",
+      "n_in": 0,
+      "n_out": 216,
+      "win_in": null,
+      "win_out": 0.329,
+      "ret_in": null,
+      "ret_out": -0.342,
+      "spread": null,
+      "small_n": true
+    },
+    {
+      "gate": "setup==2",
+      "n_in": 116,
+      "n_out": 100,
+      "win_in": 0.328,
+      "win_out": 0.33,
+      "ret_in": -0.433,
+      "ret_out": -0.237,
+      "spread": -0.197,
+      "small_n": false
+    },
+    {
+      "gate": "setup==4 (sanity)",
+      "n_in": 3,
+      "n_out": 213,
+      "win_in": 0.667,
+      "win_out": 0.324,
+      "ret_in": 0.727,
+      "ret_out": -0.357,
+      "spread": 1.084,
+      "small_n": true
+    },
+    {
+      "gate": "entry Mon/Tue",
+      "n_in": 88,
+      "n_out": 128,
+      "win_in": 0.364,
+      "win_out": 0.305,
+      "ret_in": -0.219,
+      "ret_out": -0.427,
+      "spread": 0.208,
+      "small_n": false
+    },
+    {
+      "gate": "entry Fri",
+      "n_in": 40,
+      "n_out": 176,
+      "win_in": 0.3,
+      "win_out": 0.335,
+      "ret_in": -0.424,
+      "ret_out": -0.324,
+      "spread": -0.1,
+      "small_n": false
+    },
+    {
+      "gate": "shock within 5d",
+      "n_in": 65,
+      "n_out": 151,
+      "win_in": 0.262,
+      "win_out": 0.358,
+      "ret_in": -0.231,
+      "ret_out": -0.39,
+      "spread": 0.159,
+      "small_n": false
+    },
+    {
+      "gate": "close in lower 40% of day range",
+      "n_in": 113,
+      "n_out": 103,
+      "win_in": 0.292,
+      "win_out": 0.369,
+      "ret_in": -0.44,
+      "ret_out": -0.236,
+      "spread": -0.204,
+      "small_n": false
+    },
+    {
+      "gate": "close in upper 30% of day range",
+      "n_in": 30,
+      "n_out": 186,
+      "win_in": 0.4,
+      "win_out": 0.317,
+      "ret_in": -0.355,
+      "ret_out": -0.34,
+      "spread": -0.015,
+      "small_n": false
+    }
+  ],
+  "terciles": [
+    {
+      "feature": "delivery_z",
+      "bucket": "(-1.48, -0.713]",
+      "n": 72,
+      "win": 0.292,
+      "ret": -0.463
+    },
+    {
+      "feature": "delivery_z",
+      "bucket": "(-0.713, -0.255]",
+      "n": 72,
+      "win": 0.375,
+      "ret": -0.29
+    },
+    {
+      "feature": "delivery_z",
+      "bucket": "(-0.255, 3.0]",
+      "n": 72,
+      "win": 0.319,
+      "ret": -0.275
+    },
+    {
+      "feature": "imom_percentile",
+      "bucket": "(0.447, 0.74]",
+      "n": 72,
+      "win": 0.347,
+      "ret": -0.314
+    },
+    {
+      "feature": "imom_percentile",
+      "bucket": "(0.74, 0.952]",
+      "n": 72,
+      "win": 0.347,
+      "ret": -0.302
+    },
+    {
+      "feature": "imom_percentile",
+      "bucket": "(0.952, 1.0]",
+      "n": 72,
+      "win": 0.292,
+      "ret": -0.411
+    },
+    {
+      "feature": "pv_percentile",
+      "bucket": "(0.0157, 0.0833]",
+      "n": 76,
+      "win": 0.224,
+      "ret": -0.587
+    },
+    {
+      "feature": "pv_percentile",
+      "bucket": "(0.0833, 0.25]",
+      "n": 69,
+      "win": 0.435,
+      "ret": -0.122
+    },
+    {
+      "feature": "pv_percentile",
+      "bucket": "(0.25, 1.0]",
+      "n": 71,
+      "win": 0.338,
+      "ret": -0.295
+    },
+    {
+      "feature": "rsi2",
+      "bucket": "(0.894, 7.274]",
+      "n": 72,
+      "win": 0.375,
+      "ret": -0.409
+    },
+    {
+      "feature": "rsi2",
+      "bucket": "(7.274, 73.774]",
+      "n": 72,
+      "win": 0.306,
+      "ret": -0.285
+    },
+    {
+      "feature": "rsi2",
+      "bucket": "(73.774, 100.0]",
+      "n": 72,
+      "win": 0.306,
+      "ret": -0.333
+    },
+    {
+      "feature": "range_t",
+      "bucket": "(-0.0009823, 0.0175]",
+      "n": 72,
+      "win": 0.292,
+      "ret": -0.263
+    },
+    {
+      "feature": "range_t",
+      "bucket": "(0.0175, 0.0263]",
+      "n": 72,
+      "win": 0.278,
+      "ret": -0.461
+    },
+    {
+      "feature": "range_t",
+      "bucket": "(0.0263, 0.123]",
+      "n": 72,
+      "win": 0.417,
+      "ret": -0.303
+    },
+    {
+      "feature": "atr14_pct",
+      "bucket": "(-0.000818, 0.0251]",
+      "n": 72,
+      "win": 0.236,
+      "ret": -0.214
+    },
+    {
+      "feature": "atr14_pct",
+      "bucket": "(0.0251, 0.036]",
+      "n": 72,
+      "win": 0.389,
+      "ret": -0.264
+    },
+    {
+      "feature": "atr14_pct",
+      "bucket": "(0.036, 0.0908]",
+      "n": 72,
+      "win": 0.361,
+      "ret": -0.55
+    },
+    {
+      "feature": "prox_52w",
+      "bucket": "(0.139, 0.914]",
+      "n": 72,
+      "win": 0.333,
+      "ret": -0.336
+    },
+    {
+      "feature": "prox_52w",
+      "bucket": "(0.914, 0.961]",
+      "n": 72,
+      "win": 0.319,
+      "ret": -0.354
+    },
+    {
+      "feature": "prox_52w",
+      "bucket": "(0.961, 1.0]",
+      "n": 72,
+      "win": 0.333,
+      "ret": -0.337
+    },
+    {
+      "feature": "breadth_pct",
+      "bucket": "(50.599000000000004, 64.133]",
+      "n": 72,
+      "win": 0.292,
+      "ret": -0.479
+    },
+    {
+      "feature": "breadth_pct",
+      "bucket": "(64.133, 77.333]",
+      "n": 72,
+      "win": 0.25,
+      "ret": -0.514
+    },
+    {
+      "feature": "breadth_pct",
+      "bucket": "(77.333, 87.4]",
+      "n": 72,
+      "win": 0.444,
+      "ret": -0.034
+    }
+  ]
+}

@@ -1,0 +1,482 @@
+{
+  "arm_A": {
+    "label": "A baseline (CR-001, all 5 setups)",
+    "metrics": {
+      "start_date": "2023-01-02",
+      "end_date": "2026-09-17",
+      "trades": 216,
+      "win_rate": 0.3287,
+      "profit_factor": 0.5499,
+      "cagr_pre_tax": 0.019535,
+      "cagr_post_tax": 0.019284,
+      "post_tax_final_equity": 535921.03,
+      "final_equity": 536399.76,
+      "total_tax": 478.73,
+      "total_interest": 128249.13,
+      "max_drawdown": -0.067655,
+      "max_drawdown_days": 241,
+      "avg_win_net": 1580.57,
+      "avg_loss_net": -1407.38,
+      "expectancy_net": -425.23,
+      "avg_win_net_pct": 1.2747,
+      "avg_loss_net_pct": -1.1343,
+      "expectancy_net_pct": -0.3424,
+      "sharpe": 0.6911,
+      "sortino": 0.2725,
+      "benchmark_name": "NIFTY 500",
+      "benchmark_cagr": 0.109843,
+      "benchmark_max_drawdown": -0.188432,
+      "kill_switches": 0,
+      "exit_reason_counts": {
+        "STRUCTURAL_STOP_HIT": 104,
+        "TRAILING_STOP_HIT": 42,
+        "STALL_48H_HIT": 38,
+        "TARGET_2_HIT": 26,
+        "ENTRY_REJECTED_GAP": 9,
+        "TIME_DAY5_HIT": 6
+      },
+      "setup_pnl": {
+        "SETUP_1_VCP": -6437.47,
+        "SETUP_2_RUBBERBAND": -62620.46,
+        "SETUP_3_RS_BASE": -15115.89,
+        "SETUP_4_ANCHOR_RETEST": 2736.17,
+        "SETUP_5_RESIDUAL_MOM": -10411.64
+      },
+      "setup_trades": {
+        "SETUP_1_VCP": 32,
+        "SETUP_2_RUBBERBAND": 116,
+        "SETUP_3_RS_BASE": 30,
+        "SETUP_4_ANCHOR_RETEST": 3,
+        "SETUP_5_RESIDUAL_MOM": 35
+      },
+      "trades_per_year": {
+        "2023": 40,
+        "2024": 11,
+        "2025": 73,
+        "2026": 92
+      },
+      "monthly_returns": {
+        "2023-01": 0.005177,
+        "2023-02": 0.004998,
+        "2023-03": 0.005535,
+        "2023-04": 0.004756,
+        "2023-05": 0.005858,
+        "2023-06": 0.018428,
+        "2023-07": 0.013862,
+        "2023-08": 0.016422,
+        "2023-09": -0.017872,
+        "2023-10": 0.005714,
+        "2023-11": 0.005356,
+        "2023-12": 0.005177,
+        "2024-01": 0.005893,
+        "2024-02": 0.00075,
+        "2024-03": 0.004998,
+        "2024-04": 0.005893,
+        "2024-05": 0.005535,
+        "2024-06": 0.004998,
+        "2024-07": 0.006463,
+        "2024-08": -0.000283,
+        "2024-09": 0.008434,
+        "2024-10": -0.003666,
+        "2024-11": 0.005177,
+        "2024-12": -0.001925,
+        "2025-01": 0.005535,
+        "2025-02": 0.004998,
+        "2025-03": -0.005097,
+        "2025-04": -0.003478,
+        "2025-05": 0.00081,
+        "2025-06": -0.027095,
+        "2025-07": 0.005535,
+        "2025-08": 0.005177,
+        "2025-09": 0.005714,
+        "2025-10": 0.005986,
+        "2025-11": -0.000617,
+        "2025-12": 0.005893,
+        "2026-01": 0.0046,
+        "2026-02": 0.004998,
+        "2026-03": 0.005535,
+        "2026-04": -0.001755,
+        "2026-05": -0.016882,
+        "2026-06": 0.002604,
+        "2026-07": -0.041386,
+        "2026-08": -0.007265,
+        "2026-09": 0.003031
+      },
+      "fy_tax_summary": [
+        {
+          "fy": "FY2023-24",
+          "trade_pnl": 2393.64,
+          "brought_forward": 0,
+          "taxable": 2393.64,
+          "tax": 478.73
+        },
+        {
+          "fy": "FY2024-25",
+          "trade_pnl": -18087.09,
+          "brought_forward": 0,
+          "taxable": -18087.09,
+          "tax": 0.0
+        },
+        {
+          "fy": "FY2025-26",
+          "trade_pnl": -26163.53,
+          "brought_forward": -18087.09,
+          "taxable": -44250.63,
+          "tax": 0.0
+        },
+        {
+          "fy": "FY2026-27",
+          "trade_pnl": -49992.38,
+          "brought_forward": -44250.63,
+          "taxable": -94243.01,
+          "tax": 0.0
+        }
+      ],
+      "brd_targets": [
+        {
+          "metric": "Post-Tax CAGR",
+          "target": ">= +14.00%",
+          "actual": "+1.93%",
+          "verdict": "FAIL"
+        },
+        {
+          "metric": "Win Rate",
+          "target": "+48.00% .. +56.00%",
+          "actual": "+32.87%",
+          "verdict": "FAIL"
+        },
+        {
+          "metric": "Profit Factor",
+          "target": "+1.55 .. +1.85",
+          "actual": "+0.55",
+          "verdict": "FAIL"
+        },
+        {
+          "metric": "Max Drawdown",
+          "target": "+0.00% .. -8.50%",
+          "actual": "-6.77%",
+          "verdict": "PASS"
+        },
+        {
+          "metric": "Avg Win (net %)",
+          "target": "+2.40% .. +2.70%",
+          "actual": "+1.27%",
+          "verdict": "FAIL"
+        },
+        {
+          "metric": "Avg Loss (net %)",
+          "target": "-1.90% .. -1.80%",
+          "actual": "-1.13%",
+          "verdict": "FAIL"
+        },
+        {
+          "metric": "Expectancy (net %)",
+          "target": "+0.40% .. +0.75%",
+          "actual": "-0.34%",
+          "verdict": "FAIL"
+        }
+      ],
+      "brd_all_pass": false
+    },
+    "trades_per_year": {
+      "2023": 40,
+      "2024": 11,
+      "2025": 73,
+      "2026": 92
+    },
+    "win_rate_by_year": {
+      "2023.0": 0.5,
+      "2024.0": 0.273,
+      "2025.0": 0.342,
+      "2026.0": 0.25
+    },
+    "pnl_by_year": {
+      "2023.0": 4782.0,
+      "2024.0": -12697.0,
+      "2025.0": -33541.0,
+      "2026.0": -50394.0
+    },
+    "setup_trades": {
+      "SETUP_1_VCP": 32,
+      "SETUP_2_RUBBERBAND": 116,
+      "SETUP_3_RS_BASE": 30,
+      "SETUP_4_ANCHOR_RETEST": 3,
+      "SETUP_5_RESIDUAL_MOM": 35
+    },
+    "setup_pnl": {
+      "SETUP_1_VCP": -6437.47,
+      "SETUP_2_RUBBERBAND": -62620.46,
+      "SETUP_3_RS_BASE": -15115.89,
+      "SETUP_4_ANCHOR_RETEST": 2736.17,
+      "SETUP_5_RESIDUAL_MOM": -10411.64
+    },
+    "per_setup_expectancy_pct": [
+      {
+        "setup": "SETUP_1_VCP",
+        "count": 32,
+        "mean": -0.161,
+        "median": -0.326
+      },
+      {
+        "setup": "SETUP_2_RUBBERBAND",
+        "count": 116,
+        "mean": -0.433,
+        "median": -0.672
+      },
+      {
+        "setup": "SETUP_3_RS_BASE",
+        "count": 30,
+        "mean": -0.412,
+        "median": -0.79
+      },
+      {
+        "setup": "SETUP_4_ANCHOR_RETEST",
+        "count": 3,
+        "mean": 0.727,
+        "median": 0.151
+      },
+      {
+        "setup": "SETUP_5_RESIDUAL_MOM",
+        "count": 35,
+        "mean": -0.239,
+        "median": -0.322
+      }
+    ],
+    "trading_pnl": -91849.29
+  },
+  "arm_B": {
+    "label": "B Setup-2 disabled",
+    "metrics": {
+      "start_date": "2023-01-02",
+      "end_date": "2026-09-17",
+      "trades": 106,
+      "win_rate": 0.3208,
+      "profit_factor": 0.6413,
+      "cagr_pre_tax": 0.049759,
+      "cagr_post_tax": 0.049261,
+      "post_tax_final_equity": 595262.75,
+      "final_equity": 596286.81,
+      "total_tax": 1024.06,
+      "total_interest": 131478.66,
+      "max_drawdown": -0.031158,
+      "max_drawdown_days": 189,
+      "avg_win_net": 1850.84,
+      "avg_loss_net": -1362.78,
+      "expectancy_net": -332.0,
+      "avg_win_net_pct": 1.4941,
+      "avg_loss_net_pct": -1.1015,
+      "expectancy_net_pct": -0.269,
+      "sharpe": 2.7062,
+      "sortino": 0.9828,
+      "benchmark_name": "NIFTY 500",
+      "benchmark_cagr": 0.109843,
+      "benchmark_max_drawdown": -0.188432,
+      "kill_switches": 0,
+      "exit_reason_counts": {
+        "STRUCTURAL_STOP_HIT": 40,
+        "STALL_48H_HIT": 30,
+        "TRAILING_STOP_HIT": 21,
+        "TARGET_2_HIT": 11,
+        "ENTRY_REJECTED_GAP": 6,
+        "TIME_DAY5_HIT": 4
+      },
+      "setup_pnl": {
+        "SETUP_1_VCP": -11463.49,
+        "SETUP_3_RS_BASE": -16052.89,
+        "SETUP_4_ANCHOR_RETEST": 2736.17,
+        "SETUP_5_RESIDUAL_MOM": -10411.64
+      },
+      "setup_trades": {
+        "SETUP_1_VCP": 37,
+        "SETUP_3_RS_BASE": 31,
+        "SETUP_4_ANCHOR_RETEST": 3,
+        "SETUP_5_RESIDUAL_MOM": 35
+      },
+      "trades_per_year": {
+        "2023": 13,
+        "2024": 11,
+        "2025": 42,
+        "2026": 40
+      },
+      "monthly_returns": {
+        "2023-01": 0.005177,
+        "2023-02": 0.004998,
+        "2023-03": 0.005535,
+        "2023-04": 0.004756,
+        "2023-05": 0.005858,
+        "2023-06": 0.018428,
+        "2023-07": 0.013481,
+        "2023-08": 0.008476,
+        "2023-09": -0.004185,
+        "2023-10": 0.005714,
+        "2023-11": 0.005356,
+        "2023-12": 0.005177,
+        "2024-01": 0.005893,
+        "2024-02": 0.000774,
+        "2024-03": 0.004998,
+        "2024-04": 0.005893,
+        "2024-05": 0.005535,
+        "2024-06": 0.004998,
+        "2024-07": 0.00646,
+        "2024-08": -0.000251,
+        "2024-09": 0.008418,
+        "2024-10": -0.003615,
+        "2024-11": 0.005177,
+        "2024-12": -0.001881,
+        "2025-01": 0.005535,
+        "2025-02": 0.004998,
+        "2025-03": -0.007448,
+        "2025-04": -0.004454,
+        "2025-05": -0.0012,
+        "2025-06": -0.009083,
+        "2025-07": 0.005535,
+        "2025-08": 0.005177,
+        "2025-09": 0.005714,
+        "2025-10": 0.005978,
+        "2025-11": -0.000513,
+        "2025-12": 0.005893,
+        "2026-01": 0.004614,
+        "2026-02": 0.004998,
+        "2026-03": 0.005535,
+        "2026-04": 0.002845,
+        "2026-05": 0.00728,
+        "2026-06": 0.015146,
+        "2026-07": -0.013187,
+        "2026-08": 0.009449,
+        "2026-09": 0.003031
+      },
+      "fy_tax_summary": [
+        {
+          "fy": "FY2023-24",
+          "trade_pnl": 5120.31,
+          "brought_forward": 0,
+          "taxable": 5120.31,
+          "tax": 1024.06
+        },
+        {
+          "fy": "FY2024-25",
+          "trade_pnl": -19471.44,
+          "brought_forward": 0,
+          "taxable": -19471.44,
+          "tax": 0.0
+        },
+        {
+          "fy": "FY2025-26",
+          "trade_pnl": -18139.13,
+          "brought_forward": -19471.44,
+          "taxable": -37610.57,
+          "tax": 0.0
+        },
+        {
+          "fy": "FY2026-27",
+          "trade_pnl": -2701.59,
+          "brought_forward": -37610.57,
+          "taxable": -40312.17,
+          "tax": 0.0
+        }
+      ],
+      "brd_targets": [
+        {
+          "metric": "Post-Tax CAGR",
+          "target": ">= +14.00%",
+          "actual": "+4.93%",
+          "verdict": "FAIL"
+        },
+        {
+          "metric": "Win Rate",
+          "target": "+48.00% .. +56.00%",
+          "actual": "+32.08%",
+          "verdict": "FAIL"
+        },
+        {
+          "metric": "Profit Factor",
+          "target": "+1.55 .. +1.85",
+          "actual": "+0.64",
+          "verdict": "FAIL"
+        },
+        {
+          "metric": "Max Drawdown",
+          "target": "+0.00% .. -8.50%",
+          "actual": "-3.12%",
+          "verdict": "PASS"
+        },
+        {
+          "metric": "Avg Win (net %)",
+          "target": "+2.40% .. +2.70%",
+          "actual": "+1.49%",
+          "verdict": "FAIL"
+        },
+        {
+          "metric": "Avg Loss (net %)",
+          "target": "-1.90% .. -1.80%",
+          "actual": "-1.10%",
+          "verdict": "FAIL"
+        },
+        {
+          "metric": "Expectancy (net %)",
+          "target": "+0.40% .. +0.75%",
+          "actual": "-0.27%",
+          "verdict": "FAIL"
+        }
+      ],
+      "brd_all_pass": false
+    },
+    "trades_per_year": {
+      "2023": 13,
+      "2024": 11,
+      "2025": 42,
+      "2026": 40
+    },
+    "win_rate_by_year": {
+      "2023.0": 0.615,
+      "2024.0": 0.273,
+      "2025.0": 0.214,
+      "2026.0": 0.35
+    },
+    "pnl_by_year": {
+      "2023.0": 7509.0,
+      "2024.0": -12697.0,
+      "2025.0": -26901.0,
+      "2026.0": -3103.0
+    },
+    "setup_trades": {
+      "SETUP_1_VCP": 37,
+      "SETUP_3_RS_BASE": 31,
+      "SETUP_4_ANCHOR_RETEST": 3,
+      "SETUP_5_RESIDUAL_MOM": 35
+    },
+    "setup_pnl": {
+      "SETUP_1_VCP": -11463.49,
+      "SETUP_3_RS_BASE": -16052.89,
+      "SETUP_4_ANCHOR_RETEST": 2736.17,
+      "SETUP_5_RESIDUAL_MOM": -10411.64
+    },
+    "per_setup_expectancy_pct": [
+      {
+        "setup": "SETUP_1_VCP",
+        "count": 37,
+        "mean": -0.249,
+        "median": -0.336
+      },
+      {
+        "setup": "SETUP_3_RS_BASE",
+        "count": 31,
+        "mean": -0.423,
+        "median": -0.757
+      },
+      {
+        "setup": "SETUP_4_ANCHOR_RETEST",
+        "count": 3,
+        "mean": 0.727,
+        "median": 0.151
+      },
+      {
+        "setup": "SETUP_5_RESIDUAL_MOM",
+        "count": 35,
+        "mean": -0.239,
+        "median": -0.322
+      }
+    ],
+    "trading_pnl": -35191.85
+  }
+}

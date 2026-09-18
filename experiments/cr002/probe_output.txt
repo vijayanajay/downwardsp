@@ -1,0 +1,127 @@
+CR-2026-002 empirical probe — store: nse_market.duckdb | window 2023-01-01+ (warm-up 2021-01-01)
+entry model: close_T, 5-session first-passage, tie->stop, friction 0.35%, STCG 20%
+
+==============================================================================
+P0. Regime state distribution — Issue 1's 'binary choke' claim
+  sessions [2023-01-02 .. 2026-09-17]: 913
+  engine OFFENSIVE_LONG :  459 (50.3%)  <- all setups evaluated
+  engine DEFENSIVE_CASH :  454 (49.7%)  <- zero setups evaluated
+  failure causes: nifty<=EMA20 375 (41.1%) | breadth<=50 336 (36.8%)
+
+  CR Issue-1 tri-state (same inputs):
+    BULL_TREND          :  459 (50.3%)
+    PULLBACK_CORRECTION :  289 (31.7%)
+    UNDEFINED_gap       :   85 (9.3%)
+    SECULAR_BEAR        :   80 (8.8%)
+
+feature frame: 831,351 rows, 1055 symbols, 2023-01-02..2026-09-17
+==============================================================================
+P1. Setup 2 (Rubber-Band) full-predicate fires by regime — Issue 1
+  Setup 2 full-predicate fires 2023-01-01+: 27270 on 894 sessions
+    PULLBACK_CORRECTION : 12064 (44.2%)
+    BULL_TREND          : 10890 (39.9%)
+    UNDEFINED_gap       :  2671 (9.8%)
+    SECULAR_BEAR        :  1645 (6.0%)
+  fires under CURRENT binary engine: 10890 evaluated / 27270 suppressed
+  tri-state would additionally evaluate 12064 PULLBACK_CORRECTION fires
+
+  Forward edge of Setup 2 fires BY REGIME (entry=close_T, T1=+2%, stop=low*0.998):
+    BULL_TREND                             n=10888 | P(win)=34.7% | P(stop)=51.9% | E[net]= -0.0885%/trade | BE p~ 54% | med MFE=+3.47%
+    PULLBACK_CORRECTION                    n=12058 | P(win)=33.1% | P(stop)=50.4% | E[net]= -0.0930%/trade | BE p~ 57% | med MFE=+3.72%
+
+  Same predicate, stop at fixed -2.2% (study framing):
+    BULL_TREND                             n=10888 | P(win)=53.6% | P(stop)=37.5% | E[net]= -0.2450%/trade | BE p~ 76% | med MFE=+3.47%
+    PULLBACK_CORRECTION                    n=12058 | P(win)=49.7% | P(stop)=38.3% | E[net]= -0.2731%/trade | BE p~ 76% | med MFE=+3.72%
+==============================================================================
+P2. S_runner on non-momentum archetypes — Issue 2's starvation claim
+  Setup 2 fires scored with S_runner: n=27270 | median=0.340 | p90=0.480 | max=0.681 | share>=0.45: 15.8%
+  Setup 4 retest windows scored with S_runner: n=28756 | median=0.398 | p90=0.554 | max=0.991 | share>=0.45: 31.9%
+  Setup 5 fires scored with S_runner: n=4108 | median=0.663 | p90=0.782 | max=0.995 | share>=0.45: 99.0%
+
+  Setup2 x Setup5 co-fires (same symbol-day): 0 (of 27270 S2 fires, 4108 S5 fires)
+
+  P2b. Does S_runner>=0.45 select edge WITHIN Setup 2 / Setup 4 fires?
+  (entry=close_T, own structural stop, T1=+2%; E[net] after costs)
+    Setup 2 S>=0.45                        n= 4264 | P(win)=32.2% | P(stop)=53.6% | E[net]= -0.1758%/trade | BE p~ 54% | med MFE=+3.51%
+    Setup 2 S< 0.45                        n=22684 | P(win)=34.6% | P(stop)=50.3% | E[net]= -0.0821%/trade | BE p~ 56% | med MFE=+3.66%
+    Setup 4 windows S>=0.45                n= 9126 | P(win)=61.1% | P(stop)=24.7% | E[net]= -0.3075%/trade | BE p~ 88% | med MFE=+3.89%
+    Setup 4 windows S< 0.45                n=19428 | P(win)=60.9% | P(stop)=26.0% | E[net]= -0.1567%/trade | BE p~ 84% | med MFE=+4.35%
+==============================================================================
+P3. Setup 5: prev_low stop gate vs proposed max(low_T, close*0.979) — Issue 3
+  Setup 5 full-predicate fires 2023-01-01+: 4073
+  current gate (stop=prev_low): pass 2.2% 298/4073 (7.3%) | median risk 7.78% | p90 16.18%
+  proposed stop risk distribution: median 2.10%, max 2.1000%  -> note: max is 2.10% BY CONSTRUCTION
+  >>> the CR's own formula makes the 2.2% stop gate NON-BINDING for Setup 5:
+      risk = min(range_T, 2.1%) can never exceed the gate. 'Relief' is total,
+      not 'invalidation relief for prime bars'.
+
+  fires with Day-T range > 2.1% (the 'prime expansion bars'): 3428 (84.2%)
+  Is Day-T width actually associated with forward edge? (entry=close_T, stop -2.2%)
+    narrow (range<=2.1%)                   n=  645 | P(win)=40.6% | P(stop)=31.5% | E[net]= -0.4815%/trade | BE p~ 76% | med MFE=+2.22%
+    wide (range>2.1%)                      n= 3428 | P(win)=45.9% | P(stop)=34.3% | E[net]= -0.6507%/trade | BE p~ 76% | med MFE=+4.69%
+
+  Simulated cohorts with their own stops (5-day FP, tie=stop):
+    admitted TODAY (stop=prev_low)         n=  298 | P(win)=28.2% | P(stop)=35.9% | E[net]= -0.0852%/trade | BE p~ 53% | med MFE=+1.40%
+    admitted under CR-B.1 (all fires)      n= 4073 | P(win)=42.7% | P(stop)=36.3% | E[net]= -0.6159%/trade | BE p~ 72% | med MFE=+4.26%
+==============================================================================
+P4. Setup 3 fire-rate claim & Setup 4 undershoot — Issue 5
+  feature rows 2023-01-01+: 757990
+  Setup 3 fires CURRENT (range<=3%, prox>=98.5%): 1264 (0.1668% of rows)
+  Setup 3 fires RELAXED (range<=4.2%, prox>=97.5%): 3878 (0.5116%) -> x3.1
+  ... with CR's added dry-volume check (vol<=0.85*sma20): 2071 (0.2732%) -> x1.6 net
+  Forward edge of each admitted cohort (entry=close_T, stop=low_T, T1=+2%):
+    current                                n= 1264 | P(win)=41.6% | P(stop)=47.9% | E[net]= -0.3845%/trade | BE p~ 62% | med MFE=+3.43%
+    relaxed                                n= 3878 | P(win)=43.3% | P(stop)=46.2% | E[net]= -0.4162%/trade | BE p~ 67% | med MFE=+3.74%
+    relaxed+dry                            n= 2071 | P(win)=40.3% | P(stop)=49.5% | E[net]= -0.4972%/trade | BE p~ 65% | med MFE=+3.57%
+
+  --- Setup 4: retest windows (age 3-7) ---
+  retest windows: 28554 | current full predicate: 36 fires | proposed: 66 fires (x1.8)
+  low undercuts anchor in 37.0% of windows; median undercut -3.113%; undercut beyond -1.2%: 28.7%
+  Forward edge (stop = min(anchor, low)*0.998, T1=+2%):
+    current gate                           n=   36 | P(win)=36.1% | P(stop)=55.6% | E[net]= -0.7514%/trade | BE p~ 67% | med MFE=+2.39%
+    proposed gate                          n=   66 | P(win)=39.4% | P(stop)=53.0% | E[net]= -0.8296%/trade | BE p~ 69% | med MFE=+2.56%
+==============================================================================
+P5. Issue 4 (ATR-scaled targets) vs the repo's own Addendum B study
+  fixed +2.0% target, unconditional: P(win)=50.4%, exp_net=-0.411% per attempt
+  K=0.50 ATR target (median 1.58%): P(win)=57.3%, exp_net=-0.395% per attempt
+  K=0.75 ATR target (median 2.37%): P(win)=47.5%, exp_net=-0.395% per attempt
+  K=1.00 ATR target (median 3.16%): P(win)=39.3%, exp_net=-0.39% per attempt
+  CR proposes T1 = clamp(0.75*ATR, 2.0%, 3.5%). For the median-ATR stock
+  (3.18%) that is a 2.4-3.2% target: K=0.75-1.0 rows. Win rate FALLS from
+  50.4% to 47.5%/39.3% and exp_net stays negative. Addendum B's verdict in
+  the repo's own docs: 'the stability hypothesis is rejected on all three
+  tests... ATR normalization is a screening tool, not a targeting tool.'
+  CR-002 Issue 4 cites the sweet-spot study but not its Addendum B.
+==============================================================================
+P6. CR §2.2 expectancy arithmetic
+  baseline inputs  -> E = -0.146%/trade  (CR states '-0.146% to +0.10%')
+  proposed inputs  -> E = +0.544%/trade  (CR states '+0.544%')
+  Arithmetic: checks out. But:
+  a) §2.1 claims baseline expectancy '+0.18%'; §2.2 computes -0.146%..+0.10%.
+     The CR contradicts ITSELF on its own baseline.
+  b) The avg-win input (+2.10%) is asserted, not measured. No walk-forward of
+     the CURRENT engine produced it (no tear sheet exists in data/results).
+  c) The +3.15% avg win assumes the dynamic-target change works — i.e. the
+     conclusion is an input to the proof.
+  d) BRD §10.1 already targets +0.40-0.75% expectancy; the CR baseline (+0.1%)
+     implies the current system MISSES the BRD — never demonstrated.
+==============================================================================
+P7. Per-setup conditional first-passage edge (the number the CR omits)
+    Baseline from the study: unconditional 2%-before--2.2% = 50.4%,
+    breakeven 75.9% -> every setup must LIFT P(win), not just fire.
+  probe-window unconditional P(2% before -2.2%, 5d, close-entry): 49.7% (n=826076) [study pooled 2021-26: 50.4%]
+
+  Cohorts (entry=close_T, each setup's own structural stop, T1=+2%):
+    Setup 1 VCP squeeze (stop=min(low,prev_low)) n= 2060 | P(win)=34.0% | P(stop)=53.3% | E[net]= -0.2758%/trade | BE p~ 56% | med MFE=+2.32%
+    Setup 2 rubber-band (stop=low*0.998)   n=26948 | P(win)=34.2% | P(stop)=50.8% | E[net]= -0.0969%/trade | BE p~ 56% | med MFE=+3.64%
+    Setup 3 RS base (stop=low_T)           n= 1264 | P(win)=41.6% | P(stop)=47.9% | E[net]= -0.3845%/trade | BE p~ 62% | med MFE=+3.43%
+    Setup 4 anchor retest (current gates)  n=  113 | P(win)=59.3% | P(stop)=33.6% | E[net]= -0.2884%/trade | BE p~ 79% | med MFE=+3.69%
+    Setup 5 residual mom (stop=prev_low)   n= 4073 | P(win)=71.4% | P(stop)=12.9% | E[net]= -0.2828%/trade | BE p~ 99% | med MFE=+4.26%
+      ... after 2.2% stop gate (what trades today) n=  298 | P(win)=28.9% | P(stop)=35.9% | E[net]= -0.1237%/trade | BE p~ 47% | med MFE=+1.40%
+
+  Reading: a setup deserves code changes only if its cohort's P(win)
+  beats the unconditional baseline by enough to clear breakeven vs its
+  own stop, and E[net] > 0 after friction+tax. Breakeven p for (2% win,
+  s stop, 0.35% friction, 20% STCG) = (s+0.35)/((2.35)) / 0.8 — see CR §2.
+
+DONE
