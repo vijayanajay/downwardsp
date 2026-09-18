@@ -88,7 +88,7 @@ def test_domain_enums():
     assert len(SetupID) == 5
     assert len(TrancheID) == 2
     assert len(TrancheState) == 6
-    assert len(ExitReason) == 7
+    assert len(ExitReason) == 8  # 7 trade exits + END_OF_RUN (simulation-only)
 
 
 def test_daily_bar_model():

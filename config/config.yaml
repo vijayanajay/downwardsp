@@ -16,6 +16,7 @@ risk:
   stall_threshold: 0.008      # +0.80% minimum gain at Day T+2 3:15 PM
   max_holding_days: 5         # hard Day 5 3:15 PM time exit
   kill_switch_drawdown: 0.075 # 7.5% portfolio drawdown -> 10-day halt
+  runner_trail: breakeven     # T2 runner stop after T1 fill: breakeven | prev_low (R3 A/B switch)
 
 friction:
   stt_delivery: 0.001         # 0.1% buy + 0.1% sell

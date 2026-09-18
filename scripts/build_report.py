@@ -285,21 +285,31 @@ def table_repeaters(rep: pd.DataFrame) -> str:
     head = rep.head(TOP_N_REPEATS)
     rows = ""
     for _, r in head.iterrows():
+        edge = float(r["edge_at_target"])
+        edge_cls = "pos" if edge >= 0 else "neg"
+        trade = "yes" if r["tradeable"] else "<b>no</b>"
         rows += (f"<tr><td><b>{str(r['symbol']).replace('.NS','')}</b></td>"
                  f"<td>{int(r['durable_years_at_target'])}/6</td>"
                  f"<td><b>{r['fp_rate_at_target']:.1%}</b></td>"
+                 f"<td>{r['breakeven_at_target']:.1%}</td>"
+                 f"<td class='{edge_cls}'>{edge:+.1%}</td>"
                  f"<td>{int(r.get('hits_2', 0)):,}</td>"
                  f"<td>{r['median_atr_pct']*100:.1f}%</td>"
-                 f"<td>₹{r['adtv_cr']:,.0f} cr</td></tr>")
+                 f"<td>₹{r['adtv_cr']:,.0f} cr</td><td>{trade}</td></tr>")
+    n_trade = int(rep["tradeable"].sum())
     return f"""
     <table>
       <tr><th>Stock</th><th>Years hit (of 6)</th><th>P(win) @ target</th>
-          <th>Hits @2%</th><th>Median ATR%</th><th>ADTV</th></tr>
+          <th>Breakeven</th><th>Edge</th><th>Hits @2%</th>
+          <th>Median ATR%</th><th>ADTV</th><th>Tradeable</th></tr>
       {rows}
     </table>
-    <p class="note">Repeater = first-passage win in ≥{CFG["quality"]["durability_min_years"]} distinct years
-    with ≥{CFG["quality"]["durability_min_hits_per_year"]} wins each year. High-ATR liquid names dominate —
-    as they must: the target must be small relative to the stock's own volatility.</p>"""
+    <p class="verdict"><b>Not a buy list.</b> Every edge in this table is negative — repeaters clear the
+    target often <i>because</i> they are volatile, and pay for it in stops. This is the <b>candidate pool</b>
+    for conditional studies (where range exists for a 4–8% tranche-2 runner); conditions, not membership,
+    are what can produce an edge. Tradeable = 90d median ADTV ≥ ₹{CFG["quality"]["tradeable_adtv_cr"]:g} cr
+    ({n_trade} of {len(rep)} rows); non-tradeable smallcaps are shown for completeness but cannot be sized
+    for a retail account.</p>"""
 
 
 def table_audit(audit: pd.DataFrame) -> str:

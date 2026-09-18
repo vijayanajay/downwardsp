@@ -71,10 +71,21 @@ def ledger(ctx: click.Context) -> None:
 @click.option("--in-sample", "in_sample", is_flag=True, help="Run 2010-2022 in-sample backtest.")
 @click.option("--walk-forward", "walk_forward", is_flag=True, help="Run 2023-Present walk-forward.")
 @click.option("--full", "full", is_flag=True, help="Run 2010-Present with comparative report.")
+@click.option("--start", "start_date", type=click.DateTime(["%Y-%m-%d"]), default=None,
+              help="Explicit range start (YYYY-MM-DD), with --end. Replay March 2020: --start 2020-02-01 --end 2020-05-31.")
+@click.option("--end", "end_date", type=click.DateTime(["%Y-%m-%d"]), default=None,
+              help="Explicit range end (YYYY-MM-DD), with --start.")
+@click.option("--carry-forward", "carry_forward", is_flag=True, default=False,
+              help="Force STCG loss carry-forward ON (8-FY business-loss set-off).")
+@click.option("--no-carry-forward", "no_carry_forward", is_flag=True, default=False,
+              help="Force STCG loss carry-forward OFF (plan's flat per-FY rule).")
 @click.pass_context
-def backtest(ctx: click.Context, in_sample: bool, walk_forward: bool, full: bool) -> None:
-    """Run the 13-year in-sample & walk-forward point-in-time backtest engine."""
-    _placeholder("backtest")
+def backtest(ctx: click.Context, in_sample: bool, walk_forward: bool, full: bool,
+             start_date, end_date, carry_forward: bool, no_carry_forward: bool) -> None:
+    """Run the high-fidelity point-in-time backtest engine (Phase 6)."""
+    from nse_cash.cli.backtest_cmd import run_backtest_cmd
+    run_backtest_cmd(ctx, in_sample, walk_forward, full,
+                     start_date, end_date, carry_forward, no_carry_forward)
 
 
 @cli.command("corporate-history")

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -37,6 +37,12 @@ class RiskConfig(BaseModel):
     stall_threshold: float = 0.008
     max_holding_days: int = 5
     kill_switch_drawdown: float = 0.075
+    # Trading sessions of zero-new-entries after a kill switch fires (plan 6.4).
+    kill_cooldown_days: int = 10
+    # Tranche-2 runner stop policy after a Tranche-1 fill. R3 A/B switch:
+    #   "breakeven" -> stop moves to entry price at EOD (BRD default)
+    #   "prev_low"  -> stop trails the prior session's low (Plan 6.2 literal)
+    runner_trail: Literal["breakeven", "prev_low"] = "breakeven"
 
 
 class FrictionConfig(BaseModel):
@@ -48,6 +54,10 @@ class FrictionConfig(BaseModel):
     dp_charge_per_sell: float = 15.93
     slippage_per_side: float = 0.0005
     stcg_tax_rate: float = 0.20
+    # STCG loss carry-forward (business-loss set-off, 8-FY cap): the legal
+    # behavior and the backtest default. False reproduces the plan's flat
+    # per-FY rule that drops loss years.
+    stcg_carry_forward: bool = True
 
 
 class PathsConfig(BaseModel):

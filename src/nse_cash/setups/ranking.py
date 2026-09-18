@@ -108,6 +108,9 @@ def evaluate_and_rank(features_df: pd.DataFrame,
         key = (c.symbol, c.date)
         if key not in best_by_key or c.s_runner > best_by_key[key].s_runner:
             best_by_key[key] = c
-    candidates = sorted(best_by_key.values(), key=lambda c: c.s_runner, reverse=True)
+    # Symbol tiebreak: on equal S_runner, allocation must never depend on
+    # set-iteration order (dict insertion order leaks into the book).
+    candidates = sorted(best_by_key.values(),
+                        key=lambda c: (-c.s_runner, c.symbol))
     log.info("ranker: %d candidate(s) >= %.2f", len(candidates), s_runner_min)
     return candidates

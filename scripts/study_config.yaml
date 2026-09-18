@@ -13,6 +13,7 @@ economics:
 quality:
   durability_min_years: 4           # repeater = hit target in >= 4 of 5 years
   durability_min_hits_per_year: 20  # minimum fp-wins in a year to count that year
+  tradeable_adtv_cr: 50.0           # min 90d median ADTV (₹ crore) to call a repeater tradeable
 
 report:
   top_n_repeats: 30        # repeaters shown in the HTML report table

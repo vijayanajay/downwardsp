@@ -17,7 +17,8 @@ from datetime import date as Date
 
 from nse_cash.core.governance import excluded_symbols
 from nse_cash.core.types import CandidateSignal, MarketRegimeState
-from nse_cash.funnel.market_regime import evaluate_market_regime
+from nse_cash.funnel.market_regime import (MarketRegimeResult,
+                                            evaluate_market_regime)
 from nse_cash.funnel.sector_gate import UNKNOWN_SECTOR, SectorGate
 from nse_cash.funnel.stage4_gate import evaluate_stage4
 from nse_cash.setups.features import load_features, refresh_features
@@ -46,17 +47,26 @@ class DecisionResult:
 def decide_entries(store, config, trade_date: Date,
                    occupied_slots: int = 0,
                    active_sectors: set[str] | None = None,
-                   sector_gate: SectorGate | None = None) -> DecisionResult:
+                   sector_gate: SectorGate | None = None,
+                   regime: MarketRegimeResult | None = None) -> DecisionResult:
     """Run the 4-stage funnel for one trading date.
 
     Stage 4 capacity/sector state comes from the caller (scan passes its
     current book; the backtest passes the simulated book), so the same call
     serves both.
+
+    `regime`: optional precomputed Stage 1 result. The Phase 6 engine passes
+    the row from `evaluate_market_regime_range` (computed once for the whole
+    replay) instead of letting every day re-derive it over full index history.
+    `None` keeps the old compute-per-call behavior for scan. The values the
+    funnel consumes (state, nifty50_above_ema) are identical either way — the
+    single-brain guarantee is about decisions, not about who cached them.
     """
     sectors = active_sectors if active_sectors is not None else set()
     gate = sector_gate or SectorGate()
 
-    regime = evaluate_market_regime(store, as_of_date=trade_date)
+    if regime is None:
+        regime = evaluate_market_regime(store, as_of_date=trade_date)
 
     candidates: list[CandidateSignal] = []
     accepted: list = []
@@ -82,7 +92,8 @@ def decide_entries(store, config, trade_date: Date,
             if occupied_slots + len(accepted) >= config.capital.num_slots:
                 break
             dec = evaluate_stage4(cand, occupied_slots=occupied_slots + len(accepted),
-                                  active_sectors=sectors, sector_gate=gate)
+                                  active_sectors=sectors, sector_gate=gate,
+                                  config=config)
             if dec.is_accepted:
                 if dec.sector and dec.sector != UNKNOWN_SECTOR:
                     sectors.add(dec.sector)

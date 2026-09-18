@@ -52,6 +52,7 @@ class ExitReason(str, Enum):
     STALL_48H_HIT = "STALL_48H_HIT"
     TIME_DAY5_HIT = "TIME_DAY5_HIT"
     KILL_SWITCH = "KILL_SWITCH"
+    END_OF_RUN = "END_OF_RUN"   # simulation-only: force close at end of data
 
 
 class ActionType(str, Enum):
@@ -172,3 +173,17 @@ class BacktestMetrics(BaseModel):
     sharpe: float
     sortino: float
     final_equity: float
+    # Phase 6 tear-sheet extensions (None when not computable)
+    cagr_pre_tax: Optional[float] = None
+    post_tax_final_equity: Optional[float] = None
+    total_tax: Optional[float] = None
+    total_interest: Optional[float] = None
+    benchmark_cagr: Optional[float] = None
+    benchmark_max_drawdown: Optional[float] = None
+    kill_switches: int = 0
+    gap_rejections: int = 0
+    exit_reason_counts: dict[str, int] = Field(default_factory=dict)
+    setup_pnl: dict[str, float] = Field(default_factory=dict)
+    setup_trades: dict[str, int] = Field(default_factory=dict)
+    trades_per_year: dict[str, int] = Field(default_factory=dict)
+    monthly_returns: dict[str, float] = Field(default_factory=dict)

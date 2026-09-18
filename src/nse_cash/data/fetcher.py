@@ -60,9 +60,16 @@ class NSEHttpClient:
             s = requests.Session()
             s.headers.update(BROWSER_HEADERS)
             self._local.session = s
+            self._local.needs_bootstrap = True
             with self._lock:
                 self._sessions.append(s)
         return self._local.session
+
+    def _ensure_cookies(self) -> None:
+        """Bootstrap once per worker session; again after any 403/429."""
+        if getattr(self._local, "needs_bootstrap", True):
+            self._bootstrap_cookies()
+            self._local.needs_bootstrap = False
 
     # -- tenacity decorated core GET --------------------------------------
     @retry(
@@ -73,8 +80,13 @@ class NSEHttpClient:
         reraise=True,
     )
     def _get(self, url: str, stream: bool = False) -> requests.Response:
+        # NSE rotates edge cookies mid-run (~tens of minutes); a multi-hour
+        # backfill must re-bootstrap before each retry or every request 403s
+        # until the process dies.
+        self._ensure_cookies()
         resp = self.session.get(url, timeout=self.timeout, stream=stream)
         if resp.status_code in _RETRYABLE_STATUS:
+            self._local.needs_bootstrap = True   # fresh cookies before the retry
             resp.raise_for_status()
         resp.raise_for_status()
         return resp
@@ -84,7 +96,8 @@ class NSEHttpClient:
         try:
             self.session.get("https://www.nseindia.com/", timeout=self.timeout)
         except requests.RequestException as exc:
-            log.warning("cookie bootstrap failed (continuing): %s", exc)
+            log.warning("cookie bootstrap failed (will retry): %s", exc)
+            self._local.needs_bootstrap = True
 
     # -- public API --------------------------------------------------------
     def get_bytes(self, url: str, cache_path: Optional[Path] = None,
@@ -92,8 +105,7 @@ class NSEHttpClient:
         """GET binary content with local disk cache; returns raw bytes."""
         if cache_path is not None and Path(cache_path).exists():
             return Path(cache_path).read_bytes()
-        if bootstrap:
-            self._bootstrap_cookies()
+        _ = bootstrap  # cookies are ensured inside _get (per-session, self-healing)
         resp = self._get(url)
         content = resp.content
         if cache_path is not None:
@@ -110,8 +122,6 @@ class NSEHttpClient:
         looks wrong; we retry once with a JSON Accept header + API referer
         after a fresh bootstrap.
         """
-        if bootstrap:
-            self._bootstrap_cookies()
         try:
             resp = self._get(url)
             return resp.json()

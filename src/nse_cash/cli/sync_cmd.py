@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import click
+import pandas as pd
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from nse_cash.data.bhavcopy import fetch_bhavcopy, join_delivery

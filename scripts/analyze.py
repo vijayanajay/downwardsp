@@ -55,6 +55,11 @@ def breakeven_hit_rate(target: float, stop: float, friction: float, stcg: float)
 
 BE_RATES = {t: breakeven_hit_rate(t, STOP, FRICTION, STCG) for t in TARGETS}
 
+# A repeater is a *candidate pool*, not a buy list: the table must carry the
+# breakeven bar and the per-stock edge so nobody reads high P(win) as edge.
+# See docs/FINDINGS_Weekly_Sweet_Spot_Study.md §8.
+TRADEABLE_ADTV_CR = float(CFG["quality"].get("tradeable_adtv_cr", 50.0))
+
 
 # ---------------------------------------------------------------------------
 # Per-stock event table (numpy, day-resolution first-passage)
@@ -220,7 +225,11 @@ def stock_summary(ev: pd.DataFrame) -> pd.DataFrame:
 
 
 def repeats_table(stock: pd.DataFrame, ev: pd.DataFrame, target: float) -> pd.DataFrame:
-    """Durable repeaters at `target`: stocks hitting it in >= DURABILITY_YEARS years."""
+    """Durable repeaters at `target`: stocks hitting it in >= DURABILITY_YEARS years.
+
+    The table is a candidate pool for conditional studies, not a buy list —
+    every row carries its own breakeven bar and edge so that is visible.
+    """
     col = f"fp_{target:.3f}"
     per_year = (ev.assign(hit=ev[col])
                   .groupby(["symbol", "year"])["hit"].sum().reset_index())
@@ -229,8 +238,16 @@ def repeats_table(stock: pd.DataFrame, ev: pd.DataFrame, target: float) -> pd.Da
     rep = stock.copy()
     rep["durable_years_at_target"] = dur
     rep["fp_rate_at_target"] = ev.groupby("symbol")[col].mean().round(4)
+    rep["breakeven_at_target"] = round(BE_RATES[target], 4)
+    rep["edge_at_target"] = (rep["fp_rate_at_target"] - rep["breakeven_at_target"]).round(4)
+    rep["tradeable"] = rep["adtv_cr"] >= TRADEABLE_ADTV_CR
     rep = rep[rep["durable_years_at_target"] >= DURABILITY_YEARS]
-    return rep.sort_values(["durable_years_at_target", "fp_rate_at_target"], ascending=False)
+    # Most-consistent first (6/6 years), then least-negative edge within each
+    # consistency tier. Sorting by win rate alone put a volatility list first.
+    return rep.sort_values(
+        ["durable_years_at_target", "edge_at_target", "fp_rate_at_target"],
+        ascending=[False, False, False],
+    )
 
 
 def main() -> None:
@@ -272,8 +289,11 @@ def main() -> None:
 
     sweet_target = float(tgt.loc[tgt["exp_net_pct"].idxmax(), "target_pct"]) / 100.0
     rep = repeats_table(stock.set_index("symbol"), ev, sweet_target)
+    n_tradeable = int(rep["tradeable"].sum())
+    print(f"\nstock_summary: {len(stock)} stocks | durable repeaters @{sweet_target:.1%}: {len(rep)} "
+          f"(tradeable >=Rs{TRADEABLE_ADTV_CR:g}cr ADTV: {n_tradeable}; "
+          f"none beat breakeven: {bool((rep['edge_at_target'] < 0).all())})")
     rep.reset_index().to_csv(OUT_DIR / "repeats.csv", index=False)
-    print(f"\nstock_summary: {len(stock)} stocks | durable repeaters @{sweet_target:.1%}: {len(rep)}")
 
     best_row = tgt.loc[tgt["exp_net_pct"].idxmax()]
     edge_row = tgt.loc[tgt["edge"].idxmax()]

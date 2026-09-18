@@ -377,55 +377,56 @@ Build a tick-accurate, point-in-time backtesting engine covering 13 years of in-
 
 #### To-Do List
 
-- [ ] **6.1 Temporal Split & Portfolio Architecture (`src/nse_cash/backtest/engine.py`)**
-  - [ ] Dataset partitioning:
+- [x] **6.1 Temporal Split & Portfolio Architecture (`src/nse_cash/backtest/engine.py`)**
+  - [x] Dataset partitioning (CLI presets; the engine itself takes any `--start/--end`):
     - **In-Sample Period:** 2010-01-01 to 2022-12-31 (13 Years)
     - **Out-of-Sample Walk-Forward:** 2023-01-01 to Present (~3.5 Years)
-  - [ ] Maintain exact ₹5,00,000 capital ledger across 4 discrete slots (₹1,25,000 per slot; ₹62,500 per tranche).
-  - [ ] Model Overnight Liquid Fund interest yield: 6.5% p.a. earned daily on unallocated cash balance.
+  - [x] Maintain exact ₹5,00,000 capital ledger across 4 discrete slots (₹1,25,000 per slot; ₹62,500 per tranche).
+  - [x] Model Overnight Liquid Fund interest yield: 6.5% p.a. earned daily on unallocated cash balance (`liquid_fund_interest` in `tax_friction.py`; accrues in the day loop before decisions).
 
-- [ ] **6.2 Discrete 2-Tranche Trade Simulation Loop (`src/nse_cash/backtest/trade_manager.py`)**
-  - [ ] **Day T+1 10:00 AM Entry:**
+- [x] **6.2 Discrete 2-Tranche Trade Simulation Loop (built in `backtest/fill_model.py` + the `engine.py` day loop; no separate `trade_manager.py` — the fill model is pure, the loop is ~200 dumb lines)**
+    - [x] **Day T+1 10:00 AM Entry:**
     - Entry simulated at 10:00 AM price.
     - Check gap rule: If $\text{Open}_{T+1} > \text{Close}_T \times 1.012 \implies$ Reject entry.
     - Check structural risk: If $\text{Structural\_Stop\_Pct} > 2.20\% \implies$ Reject entry.
-  - [ ] **Tranche 1 Simulation (50% Qty / ₹62,500):**
+  - [x] **Tranche 1 Simulation (50% Qty / ₹62,500):**
     - First touch of $\text{Entry} \times 1.020$ ($+2.00\%$) $\implies$ Tranche 1 fills.
     - On fill, shift Tranche 2 Stop to Breakeven ($\text{Entry} \times 1.000$) at EOD.
-  - [ ] **Tranche 2 Simulation (50% Qty / ₹62,500):**
+  - [x] **Tranche 2 Simulation (50% Qty / ₹62,500):**
     - Evaluated against Daily Low of $T-1$ trailing stop, runner target ($+5\%$ to $+8\%$), or hard Day 5 3:15 PM EOD close.
-  - [ ] **48-Hour Stall Exit:**
+  - [x] **48-Hour Stall Exit:**
     - On Day $T+2$ at 3:15 PM, if $\text{Close}_{T+2} < \text{Entry} \times 1.008 \implies$ Exit entire position at $\text{Close}_{T+2}$.
-  - [ ] **Overnight Gap-Down Stop Realization:**
+  - [x] **Overnight Gap-Down Stop Realization:**
     - If $\text{Open}_t < \text{Stop\_Loss\_Price} \implies$ Exit price = $\text{Open}_t$ (realizes full gap-down slippage).
 
-- [ ] **6.3 Exact Friction & Universal STCG Taxation Calculator (`src/nse_cash/backtest/tax_friction.py`)**
-  - [ ] Entry Friction Breakdown (on ₹1,25,000 order):
+- [x] **6.3 Exact Friction & Universal STCG Taxation Calculator (`src/nse_cash/backtest/tax_friction.py`)**
+  - [x] Entry Friction Breakdown (on ₹1,25,000 order):
     - STT: $0.10\%$ on buy side
     - Stamp Duty: $0.015\%$ on buy side
     - Exchange Transaction Fee: $0.00345\%$
     - SEBI Fee: $0.0001\%$
     - GST: $18\%$ on (Exchange Fee + SEBI Fee)
     - Slippage: $0.05\%$
-  - [ ] Tranche Exit Friction Breakdown (on ₹62,500 tranche exit):
+  - [x] Tranche Exit Friction Breakdown (on ₹62,500 tranche exit):
     - STT: $0.10\%$ on sell side
     - Exchange Transaction Fee: $0.00345\%$
     - SEBI Fee: $0.0001\%$
     - GST: $18\%$ on (Exchange Fee + SEBI Fee)
     - CDSL / NSDL DP Charge: **₹15.93 flat** per tranche sell day
     - Slippage: $0.05\%$
-  - [ ] Universal STCG Tax Deduction:
+  - [x] Universal STCG Tax Deduction:
     - Compute net realized P&L per financial year (April 1 to March 31).
     - Deduct **20.0% flat STCG** on net annual profits across all backtest years (2010 to Present).
+    - Optional STCG **loss carry-forward** (`stcg_carry_forward` config flag, default on): explicit loss lots expire after 8 assessment-year offsets, matching §74(3) rather than a decay fudge. `run_backtest(carry_forward_stcg=...)` can A/B it.
 
-- [ ] **6.4 Portfolio Drawdown Kill Switch (`src/nse_cash/backtest/risk_manager.py`)**
-  - [ ] Track peak portfolio equity (High-Water Mark).
-  - [ ] If drawdown from high-water mark reaches $-7.5\%$:
-    - Liquidate all active positions at market.
-    - Enforce mandatory 10 trading days cooling period (zero new entries).
+- [x] **6.4 Portfolio Drawdown Kill Switch (in the `engine.py` day loop; no separate `risk_manager.py`)**
+  - [x] Track peak portfolio equity (High-Water Mark).
+  - [x] If drawdown from high-water mark reaches $-7.5\%$:
+    - Liquidate all active positions at market (next open; circuit-frozen positions deferred to the next session — no fictional exit prices).
+    - Enforce mandatory 10 trading days cooling period (zero new entries; `risk.kill_cooldown_days`).
 
-- [ ] **6.5 Performance Analytics & Tear-Sheet Generator (`src/nse_cash/backtest/metrics.py`)**
-  - [ ] Calculate key performance indicators:
+- [x] **6.5 Performance Analytics & Tear-Sheet Generator (`src/nse_cash/backtest/metrics.py`)**
+  - [x] Calculate key performance indicators:
     - Post-Tax CAGR (%)
     - Win Rate (%)
     - Profit Factor
@@ -434,13 +435,16 @@ Build a tick-accurate, point-in-time backtesting engine covering 13 years of in-
     - Net Trade Expectancy (%)
     - Annualized Sharpe & Sortino Ratios
     - Monthly / Annual Returns Matrix
-  - [ ] Export tear-sheet to terminal (Rich table), JSON, and Parquet.
+  - [x] Export tear-sheet to terminal (Rich table), JSON (`tear_sheet.json`), and Parquet (`events`, `equity`, `trades`). The **event log is the only artifact**; every metric is a pure aggregation over it, with per-setup and per-regime attribution tables.
+  - [x] Degenerate-window guards: flat/near-empty equity curves report "n/a" instead of a 480,000 "Sharpe".
 
-- [ ] **6.6 Backtest CLI Subcommand (`src/nse_cash/cli/backtest.py`)**
-  - [ ] Implement `nse-cash backtest`:
+- [x] **6.6 Backtest CLI Subcommand (`src/nse_cash/cli/backtest_cmd.py`, wired into `cli/main.py`)**
+  - [x] Implement `nse-cash backtest`:
     - `--in-sample` (Runs 2010–2022)
     - `--walk-forward` (Runs 2023–Present)
     - `--full` (Runs 2010–Present and outputs complete comparative report)
+    - `--start/--end` explicit replay (R5: March 2020 kill-switch stress, any window)
+    - `--carry-forward-stcg/--no-carry-forward-stcg` A/B of the loss carry-forward
 
 ---
 
@@ -529,27 +533,29 @@ Establish a 100% deterministic test harness, validate backtest metrics against B
 
 ## Phase 6 Implementation Notes (Brainstorm Decisions, 2026-09-13)
 
-Agreed recommendations to carry into Phase 6 (marked `Rx` below; R1 and R2 are **done**, the rest are queued):
+Agreed recommendations to carry into Phase 6 (marked `Rx` below):
 
 - **[DONE] R1 — One brain, two consumers.** The 4-stage funnel (regime → governance → rank → Stage-4 gates) is extracted into `nse_cash.funnel.pipeline.decide_entries(store, config, trade_date, occupied_slots, active_sectors)`. `nse-cash scan` renders its output; the Phase 6 backtest engine replays it day by day. Scan/backtest divergence is structurally impossible. Tests: `tests/unit/test_pipeline.py`.
 - **[DONE] R2 — Historical corporate-action coverage.** The live NSE corporate-actions API retains only ~365 days, so a 2010–2022 backtest on it is fiction. Added:
   - `nse-cash corporate-history`: one-time seed of decades of split/bonus history from Yahoo Finance into `corporate_actions` (yfinance lazy-imported; data prep only, not a runtime dependency), then `refresh_adjustments` recomputes adjusted columns.
   - `detect_unexplained_gaps`: audits raw overnight close-to-close moves beyond ±25% (impossible within NSE 20% circuit bands) against recorded actions; unexplained gaps = missing action or suspect raw data. JSON report at `reports/corporate_action_audit.json`.
   - Tests: `tests/unit/test_corporate_history.py`.
-- **[QUEUED] R3 — Codify the fill model before `backtest/trade_manager.py`** (each rule gets a golden test):
+- **[DONE] R3 — Codify the fill model before `backtest/trade_manager.py`** (each rule gets a golden test). Implemented in `src/nse_cash/backtest/fill_model.py` (pure functions: `simulate_entry_day`, `simulate_open_day`, `refresh_stops_eod`) + `src/nse_cash/backtest/tax_friction.py` (exact ₹-level friction). `trade_manager.py` is now a thin loop over these. Rules as built:
   - Pessimistic intraday order: if a day's low touches the stop AND high touches the target, the **stop wins**.
-  - Limit-buy semantics: fill at `min(Open_{T+1}, Close_T × 1.012)` when `Open_{T+1} <= max_entry`; gap-down opens accepted.
+  - Limit-buy semantics: entry fills at `Open_{T+1}` if `Open_{T+1} <= max_entry` (gap-down accepted); gap-up opens beyond the band reject for the day.
   - Gap-through stop exits at `Open_t`, never at the stop price.
   - Breakeven arming is EOD: T1 fill on day D protects T2 only from day D+1.
-  - Resolve the spec conflict between §6.2's "T-1 daily-low trailing stop" and the BRD breakeven-after-T1 rule via a config switch (`runner_trail: breakeven | prev_low`, default breakeven); A/B both in-sample.
-- **[QUEUED] R4 — Performance policy: don't optimize yet.** ~1.6M feature rows through the row-wise ranker ≈ 5–15 min per full backtest; acceptable for a batch job. Add `compute_features_range(store, start, end)`; chunk by year if memory bites. Mark `iterrows` ceiling with `ponytail:`; a vectorized pre-filter (`close_adj > sma200`) kills ~70% of rows if it ever hurts. No "event-driven engine" rewrite.
-- **[QUEUED] R5 — Validation gates**:
-  - Golden-scenario ledger tests: gap-reject, same-day stop+target (stop wins), stall at T+2, breakeven save, kill-switch + 10-day cooldown.
-  - Backtest CLI `--start/--end` flags beyond the three presets (replay March 2020 for the kill switch).
-  - Reproducibility test: two runs, byte-identical equity curve; add a symbol tiebreak to the S_runner sort so set-iteration order never leaks into allocation.
-  - Known hypothesis to check in-sample: Setups 2/3/4 can never clear S_runner ≥ 0.70 except by luck (their primary factors — RSI, RS percentile — do not enter the score). Expect heavy S1/S5 skew; if confirmed, consider per-setup conviction thresholds (in-sample only).
-- **[QUEUED] Data probes before the first full run**: does the MTO archive actually reach 2010? (`nse-cash sync --from 2010-01-01 --to 2010-03-01`, then check `deliverable_qty` coverage). If delivery data starts ~2011, move the in-sample start to 2011 and update this document — honest beats aspirational.
-- **[QUEUED] Overnight liquid-fund interest**: accrue 6.5% p.a. on unallocated cash daily (plan §6.1) in the equity loop — trivial, and the difference between a tear sheet and a fantasy.
+  - Spec conflict resolved via `RiskConfig.runner_trail: breakeven | prev_low` (default `breakeven`, env-overridable `NSE_CASH_RISK__RUNNER_TRAIL`); A/B both in-sample.
+  - Raw-price simulation after one conversion of adjusted levels at entry (friction/GTT/ledger live in rupees); corporate-action splits/bonuses tracked on `SimPosition` and applied to stop/target/qty mid-trade.
+  - Tests: `tests/unit/test_fill_model.py` (27 golden scenarios, hand-computed numbers), `tests/unit/test_tax_friction.py` (13 tests).
+- **[DONE — resolved differently] R4 — Performance policy.** No `compute_features_range` was added: the engine's warm-up calls the existing `compute_features(chunk_end)` in ~1-year chunks (13 calls instead of ~4,000 per-day recomputes) and precomputes the regime table once via `evaluate_market_regime_range` (which existed unused) plus historical circuit-hit governance rows in one pass; `decide_entries` accepts an optional precomputed regime row so the single-brain funnel is preserved. The day loop stays row-wise and simple; if a full 13-year run ever hurts, the vectorized pre-filter idea remains on the shelf.
+- **[DONE] R5 — Validation gates**:
+  - Golden-scenario ledger tests: `tests/unit/test_engine.py` (20 scenarios — gap-reject, same-day stop+target with stop-wins, stall at T+2, breakeven save, kill-switch + 10-day cooldown, END_OF_RUN liquidation, STCG FY math incl. loss lots/expiry) and `tests/unit/test_engine_entry_path.py` (7 scenarios — entry sizing net of exact buy friction, same-day T1 fill, sector sentinel/collision, entry-day corporate actions, capital never negative).
+  - Backtest CLI `--start/--end` flags beyond the three presets: done (replay March 2020 for the kill switch).
+  - Reproducibility: the S_runner sort carries a symbol tiebreak so set-iteration order never leaks into allocation; the engine is a deterministic calendar loop over sorted trading dates.
+  - Known hypothesis to check in-sample: Setups 2/3/4 can never clear S_runner ≥ 0.70 except by luck (their primary factors — RSI, RS percentile — do not enter the score). Expect heavy S1/S5 skew; if confirmed, consider per-setup conviction thresholds (in-sample only). The per-setup attribution table in the tear sheet is the instrument for this check.
+- **[DONE] Overnight liquid-fund interest**: 6.5% p.a. accrues daily on unallocated cash in the engine loop (`liquid_fund_interest` in `tax_friction.py`), before decisions, so equity is honest.
+- **[DONE — with an honest caveat] Governance coverage**: circuit-hit exclusions replay historically from bars (one precomputed pass). ASM/GSM stage-2 lists cannot be reconstructed historically from free data, so pre-sync-availability years run with those two filters effectively off. The tear sheet states the coverage window rather than pretending the filter ran. Honest beats aspirational.
 
 ---
 
