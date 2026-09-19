@@ -340,7 +340,7 @@ class TestCliDispatch:
         result = CliRunner().invoke(cli, ["--config", str(config_yaml),
                                           "backtest"])
         assert result.exit_code != 0
-        assert "Run `nse-cash sync` first" in result.output
+        assert "Run `nse-cash sync` first" in result.output.replace("\n", " ")
 
     def test_ledger_bare_on_sandbox_book(self, config_yaml, tmp_path, sandbox):
         from nse_cash.cli.main import cli
