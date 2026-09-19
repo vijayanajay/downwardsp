@@ -178,7 +178,14 @@ def _mirror_signal(led: Ledger, store: MarketStore, cfg: SystemConfig,
 
 
 def test_live_ledger_matches_backtest_book(tmp_path):
-    cfg = SystemConfig()
+    # CR-2026-003 E.1 demotes the S_runner hard gate by default, which would
+    # admit this fixture's Setup-3 re-fires on the drift segment (S ~ 0.35
+    # below the 0.45 bar; the hand-verified lifecycle above assumed the old
+    # gate filtered them) and end the replay in END_OF_RUN fiction. This
+    # suite pins ledger<->engine book equivalence, not admission semantics,
+    # so it opts back into the enforced gate explicitly. The demoted-gate
+    # behavior is covered in tests/unit/test_cr003_flags.py.
+    cfg = SystemConfig(ranking={"enforce_s_runner_gate": True})
     store = _store_with_equivalence_signal(tmp_path)
     led = Ledger(tmp_path / "ledger.sqlite3")
     try:

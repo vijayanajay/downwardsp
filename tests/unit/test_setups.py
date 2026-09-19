@@ -23,6 +23,17 @@ from nse_cash.setups.catalog import (evaluate_setup1_vcp_squeeze,
 from nse_cash.setups.features import _add_symbol_features, compute_features
 from nse_cash.setups.ranking import compute_s_runner, evaluate_and_rank
 
+# CR-2026-003: config plumbing for the pre-CR-003 behavior these tests pin.
+# E.1: the S_runner hard gate became opt-in, so gate-enforcing tests must set
+# ranking.enforce_s_runner_gate=True. B.1: Setup 2 is pruned by DEFAULT now,
+# so tests that assert Setup-2 candidacy must also re-enable it via
+# catalog.enable_setup2=True — otherwise the evaluator is removed before the
+# gate is ever consulted (the funnel log shows "disabled by config").
+from nse_cash.core.config import SystemConfig
+
+CFG_GATE_ENFORCED = SystemConfig(catalog={"enable_setup2": True},
+                                 ranking={"enforce_s_runner_gate": True})
+
 START = date(2026, 1, 1)
 
 
@@ -490,7 +501,11 @@ class TestRanking:
             assert feats["imom_percentile"].max() == pytest.approx(1.0)
 
             feats["close_raw"] = feats["close_adj"]
-            cands = evaluate_and_rank(feats, nifty50_above_ema=True)
+            # CR-2026-003 E.1 + B.1: this test pins the pre-CR-003 behavior
+            # (hard 0.45 gate; Setup 2 evaluated and filtered by it), so the
+            # CFG_GATE_ENFORCED flags restore both explicitly.
+            cands = evaluate_and_rank(feats, nifty50_above_ema=True,
+                                      config=CFG_GATE_ENFORCED)
             assert len(cands) >= 1
             top = cands[0]
             # SHOCK (Setup 5, S ~= 0.70) tops the book; UNIV's Setup 2 fires
@@ -530,7 +545,11 @@ class TestRanking:
         """CR-2026-001 acceptance #3: Setups other than 5 qualify on their own
         merits. A Setup-2 rubber-band row (dry day, z <= 0) and a Setup-5
         shock row both clear the normalized 0.45 bar; Setup 4's frozen-anchor
-        row does too when its score terms are strong."""
+        row does too when its score terms are strong.
+
+        CR-2026-003 E.1 + B.1: pins the pre-CR-003 state — the 0.45 bar
+        ENFORCED and Setup 2 evaluated — so both rows must clear the gate
+        outright (no bypass kindness). CFG_GATE_ENFORCED sets both flags."""
         def _feat_row(**kw):
             base = {
                 "symbol": "X", "date": date(2026, 6, 1), "close_raw": 100.0,
@@ -554,8 +573,10 @@ class TestRanking:
         s5_row = _feat_row(symbol="MOMO", imom_percentile=0.97,
                            delivery_adj=110_000.0,
                            open_adj=100.0, close_adj=101.0)
-        cands = evaluate_and_rank(pd.DataFrame([s2_row, s5_row]),
-                                  nifty50_above_ema=True)
+        cands = evaluate_and_rank(
+            pd.DataFrame([s2_row, s5_row]),
+            nifty50_above_ema=True,
+            config=CFG_GATE_ENFORCED)
         by_setup = {c.setup: c for c in cands}
         assert SetupID.SETUP_2_RUBBERBAND in by_setup, \
             "Setup 2 must qualify: S = 0.35*1.0(imom) + 0.30*1.0(pv) = 0.65"

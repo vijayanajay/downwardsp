@@ -21,6 +21,8 @@ from nse_cash.backtest.fill_model import (EventType, SimPosition,
 from nse_cash.core.config import SystemConfig
 from nse_cash.core.types import ExitReason
 
+import pytest
+
 CFG = SystemConfig()
 
 SIGNAL_DAY = date(2026, 8, 3)       # Monday (T)
@@ -56,6 +58,38 @@ def bar(d, o, h, l, c):
 
 def events_of(pos, *types):
     return [e for e in pos.events if e.event_type in types]
+
+
+class TestExcursionTelemetry:
+    """CR-2026-003 MFE/MAE tracking: measurement only, never gates behavior.
+    Hand-computed against the canonical make_position trade (fill 100, stop
+    98, T1 102, T2 106)."""
+
+    def test_mfe_mae_track_entry_and_open_days_then_exit_print(self):
+        pos = make_position()
+        # Entry day: fill at 100; high 101.4 -> MFE 1.4%; low 99.7 -> MAE 0.3%.
+        simulate_entry_day(pos, bar(ENTRY_DAY, 100.0, 101.4, 99.7, 101.0), CFG)
+        assert pos.mfe_pct == pytest.approx(0.014)
+        assert pos.mae_pct == pytest.approx(0.003)   # adverse kept POSITIVE
+        assert pos.mfe_day == 1 and pos.mae_day == 1
+        # Day 2: high 103.4 fills T1 (102) and sets MFE 3.4%; low 98.1 stays
+        # a hair above the 98 stop but digs DEEPER than day 1's 0.3% ->
+        # MAE renews to 1.9% (it is a running maximum).
+        simulate_open_day(pos, bar(D2, 99.5, 103.4, 98.1, 102.5), CFG)
+        assert pos.mfe_pct == pytest.approx(0.034)
+        assert pos.mae_pct == pytest.approx(0.019)
+        assert pos.mfe_day == 2 and pos.mae_day == 2
+        # Forced exit ABOVE the running MFE must print (exit is an excursion).
+        force_exit(pos, 104.5, D3)
+        assert pos.mfe_pct == pytest.approx(0.045)
+        assert pos.mfe_day == 2                        # day not updated twice
+
+    def test_gap_rejected_entry_is_never_tracked(self):
+        pos = make_position()
+        # Open 101.3 > max_entry 101.2 -> rejected, never filled, never tracked.
+        simulate_entry_day(pos, bar(ENTRY_DAY, 101.3, 101.5, 100.9, 101.2), CFG)
+        assert pos.entry_price_raw is None
+        assert pos.mfe_pct == 0.0 and pos.mae_pct == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -439,3 +473,112 @@ class TestGttStopLimit:
         assert events_of(pos, EventType.ENTRY_FILLED)
         assert events_of(pos, EventType.GTT_STOP_UNFILLED)
         assert pos.is_open
+
+
+# ---------------------------------------------------------------------------
+# 6. CR-2026-003 X1: t1_enabled / time_stop_enabled exit geometry
+# ---------------------------------------------------------------------------
+
+class TestX1ExitGeometry:
+    """X1 fill-model knobs (risk.t1_enabled / risk.time_stop_enabled).
+    t1_enabled=False: one full-size position — no T1 fill, no breakeven arm,
+    a T2 touch exits everything, the structural stop is the only stop.
+    time_stop_enabled=False: the Day-2 stall and Day-5 time exits vanish;
+    positions live only by stop/target (max_holding_days stays armed).
+    Defaults (True/True) reproduce the golden tests above byte-for-byte."""
+
+    @staticmethod
+    def _x1_cfg(**kw) -> SystemConfig:
+        return SystemConfig(risk={"t1_enabled": False,
+                                  "time_stop_enabled": False, **kw})
+
+    def test_defaults_reproduce_legacy_geometry(self):
+        # The X1 contract: default config must be indistinguishable pre-X1.
+        pos = simulate_entry_day(make_position(),
+                                 bar(ENTRY_DAY, 100.5, 102.1, 99.9, 101.5), CFG)
+        assert events_of(pos, EventType.T1_TARGET)
+        assert pos.pending_stop_raw == 100.5   # breakeven armed as ever
+
+    def test_no_t1_fill_no_breakeven_arm(self):
+        pos = simulate_entry_day(make_position(),
+                                 bar(ENTRY_DAY, 100.5, 102.1, 99.9, 101.5),
+                                 self._x1_cfg())
+        assert not events_of(pos, EventType.T1_TARGET)
+        assert not events_of(pos, EventType.BREAKEVEN_ARMED)
+        assert pos.pending_stop_raw == 98.0    # structural stop stands
+        assert pos.is_open
+
+    def test_t2_touch_exits_full_position_at_target(self):
+        # Built as the engine builds it under X1: the whole slot in tranche 2
+        # (tranche1_qty=0), so a T2 touch books the full 74 shares.
+        pos = simulate_entry_day(
+            make_position(tranche1_qty=0, tranche2_qty=74),
+            bar(ENTRY_DAY, 100.5, 101.0, 99.5, 100.8), self._x1_cfg())
+        pos.day_index = 1
+        simulate_open_day(pos, bar(D2, 101.0, 106.2, 100.4, 105.0),
+                          self._x1_cfg())
+        t2 = events_of(pos, EventType.T2_TARGET)[0]
+        assert t2.price == 106.0
+        assert t2.qty == 74, "the whole position exits, not a 37-share runner"
+        assert not events_of(pos, EventType.T1_TARGET)
+        assert not pos.is_open
+
+    def test_move_short_of_t2_keeps_position_open(self):
+        pos = simulate_entry_day(make_position(),
+                                 bar(ENTRY_DAY, 100.5, 101.0, 99.5, 100.8),
+                                 self._x1_cfg())
+        pos.day_index = 1
+        # High 104.0: no tranche fills (t1 gone) and 104 < T2 106 -> ride on.
+        simulate_open_day(pos, bar(D2, 101.0, 104.0, 100.4, 103.5),
+                          self._x1_cfg())
+        assert pos.is_open and not events_of(pos, EventType.T2_TARGET)
+
+    def test_no_stall_no_day5_exit(self):
+        pos = simulate_entry_day(make_position(),
+                                 bar(ENTRY_DAY, 100.5, 101.0, 99.5, 100.8),
+                                 self._x1_cfg())
+        seq = [(D2, 100.0, 100.6, 99.8, 99.0),    # day 2: below stall floor
+               (D3, 99.2, 101.2, 99.0, 101.0),
+               (D4, 100.8, 101.6, 100.5, 101.4),
+               (D5, 101.2, 101.9, 101.0, 101.7)]  # day 5: legacy time exit
+        for d, o, h, l, c in seq:
+            simulate_open_day(pos, bar(d, o, h, l, c), self._x1_cfg())
+        assert pos.is_open
+        assert not events_of(pos, EventType.STALL_EXITED)
+        assert not events_of(pos, EventType.TIME_EXITED)
+
+    def test_stall_still_fires_when_only_t1_disabled(self):
+        # Flag independence: t1_enabled=False alone leaves the time-stop ladder
+        # armed — the Day-2 stall still exits at the close.
+        cfg = self._x1_cfg(time_stop_enabled=True)
+        pos = simulate_entry_day(make_position(),
+                                 bar(ENTRY_DAY, 100.5, 101.0, 99.5, 100.8), cfg)
+        pos.day_index = 1
+        simulate_open_day(pos, bar(D2, 100.0, 100.6, 99.8, 99.0), cfg)
+        assert events_of(pos, EventType.STALL_EXITED)
+        assert not pos.is_open
+
+    def test_stop_path_unchanged_books_both_tranches(self):
+        # make_position's 37/37 split: the structural stop still exits the
+        # whole book through the legacy _exit_all path (X1 touches only T1
+        # fills and time exits, never stops).
+        pos = simulate_entry_day(make_position(),
+                                 bar(ENTRY_DAY, 100.5, 101.0, 99.5, 100.8),
+                                 self._x1_cfg())
+        pos.day_index = 1
+        simulate_open_day(pos, bar(D2, 100.0, 100.6, 97.9, 99.0),
+                          self._x1_cfg())
+        stops = events_of(pos, EventType.STOP_HIT)
+        assert [s.qty for s in stops] == [37, 37]
+        assert not pos.is_open
+
+    def test_stop_and_t2_same_bar_stop_wins(self):
+        pos = simulate_entry_day(make_position(),
+                                 bar(ENTRY_DAY, 100.5, 101.0, 99.5, 100.8),
+                                 self._x1_cfg())
+        pos.day_index = 1
+        simulate_open_day(pos, bar(D2, 100.0, 106.4, 97.5, 103.0),
+                          self._x1_cfg())
+        stop = events_of(pos, EventType.STOP_HIT)[0]
+        assert stop.price == 98.0 and stop.ambiguous_intrabar
+        assert not events_of(pos, EventType.T2_TARGET)

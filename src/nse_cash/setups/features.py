@@ -55,6 +55,9 @@ def _add_symbol_features(df: pd.DataFrame) -> pd.DataFrame:
     # --- Trend ---
     out["sma200"] = close.rolling(200, min_periods=200).mean()
     out["sma200_slope5"] = out["sma200"] - out["sma200"].shift(5)
+    # CR-2026-003 Phase B.4: 20-session price SMA (Setup 1's trend floor:
+    # close >= sma20 * 0.99 when catalog.setup1_pv_binding is on).
+    out["sma20_close"] = close.rolling(20, min_periods=20).mean()
 
     # --- Volume & delivery ---
     out["sma20_vol"] = vol.rolling(20, min_periods=20).mean()

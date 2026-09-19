@@ -15,6 +15,16 @@ risk:
   max_gap_entry: 0.012        # +1.20% morning gap-up ceiling
   stall_threshold: 0.008      # +0.80% minimum gain at Day T+2 3:15 PM
   max_holding_days: 5         # hard Day 5 3:15 PM time exit
+  # X1 (exit-geometry A/B): t1_enabled=False removes the +2% tranche guillotine
+  # (full-size position, no breakeven arm); time_stop_enabled=False removes the
+  # Day-2 stall + Day-5 exits (positions live by stop/target; max_holding_days
+  # is the sole time knob). Defaults True = pre-X1 behavior.
+  t1_enabled: true
+  time_stop_enabled: true
+  # X2: risk-parity wide stops — Stage 4 admits up to the setup's own gate and
+  # the engine sizes shares so rupee stop-risk stays at 2.2% of slot capital.
+  # False (default) = legacy 2.2% hard wall on every candidate.
+  risk_parity_stops: false
   kill_switch_drawdown: 0.075 # 7.5% portfolio drawdown -> 10-day halt
   runner_trail: breakeven     # T2 runner stop after T1 fill: breakeven | prev_low (R3 A/B switch)
   gtt_stop_limit_buffer: 0.015 # CR-001: GTT stop LIMIT leg 1.5% below trigger (gap-down protection)
@@ -28,6 +38,33 @@ friction:
   dp_charge_per_sell: 15.93   # Rs 15.93 flat per sell day
   slippage_per_side: 0.0005   # 0.05% in + 0.05% out
   stcg_tax_rate: 0.20         # 20.0% flat STCG
+
+# CR-2026-003 Phase A: per-setup catalog switches (A.1), setup geometry
+# parameters (A.3) and ranker flags (A.4).
+catalog:
+  enable_setup1: true
+  enable_setup2: false        # pruned: measured -Rs 62.6k / 68% of walk-forward losses (CR-003 §3)
+  enable_setup3: true
+  enable_setup4: true
+  enable_setup5: true
+  # --- Phase A.3 geometry (all flag-gated; defaults reproduce pre-CR-003 behavior) ---
+  setup4_wide_geometry: false          # B.2 arm: -2.5% undercut, T1 +3.5%, 3.5% stop gate
+  setup4_tranche1_target: 0.035
+  setup4_undercut_tolerance: 0.025
+  setup4_max_stop_pct: 0.035
+  setup5_use_risk_parity: false        # B.3 arm: emits risk-parity metadata for D.1 sizing
+  setup5_max_rupee_risk_pct: 0.022
+  setup1_pv_binding: false             # B.4 arm: PV <= p15 becomes binding + close >= sma20*0.99
+  # X2: Setup 3's own stop gate (ranker filter). Default 0.022 = historical;
+  # the X2 wide arm raises it so natural base lows survive the ranker.
+  setup3_max_stop_pct: 0.022
+
+ranking:
+  enforce_s_runner_gate: false  # E.1: S_runner demoted to sort key (anti-selects in-book)
+
+funnel:
+  breadth_offensive_min: 0.0   # A.2: 0 disables the Phase C breadth entry gate
+  breadth_sizing_multiplier: 1.0
 
 paths:
   raw_dir: data/raw

@@ -131,6 +131,15 @@ def evaluate_stage4(
     num_slots = cfg.capital.num_slots
     max_stop = cfg.risk.max_structural_stop
     max_gap = cfg.risk.max_gap_entry
+    # CR-2026-003 X2 (risk.risk_parity_stops): in parity mode the hard global
+    # wall yields to the candidate's own setup gate (max_stop_pct) — admission
+    # up to the WIDER of the two — because the engine sizes shares so rupee
+    # stop-risk stays at max_structural_stop * slot_capital. Candidates with a
+    # narrower setup gate keep the tighter gate. Flag off = legacy wall.
+    if getattr(cfg.risk, "risk_parity_stops", False):
+        cand_gate = getattr(candidate, "max_stop_pct", None)
+        if cand_gate is not None and float(cand_gate) > max_stop:
+            max_stop = float(cand_gate)
     gate = sector_gate or SectorGate()
 
     sym = str(getattr(candidate, "symbol", "") or candidate.get("symbol", ""))

@@ -8,6 +8,11 @@ and the Phase 6 backtest cannot disagree.
 Rules from docs/algos.md; NULL features (insufficient history) never match.
 Every setup returns (structural_stop_raw, max_stop_pct, tranche1_pct,
 tranche2_pct) with its own stop gate (Setup 4: 2.00%; others 2.20%).
+
+CR-2026-003 Phase B: Setup 1/4/5 also accept an optional `config=` and read
+`config.catalog.*` geometry flags (Phase A.3). Every flag defaults OFF and
+the legacy dict shape is returned unchanged when no config is passed, so
+legacy callers and the predicate unit tests see identical behavior.
 """
 
 from __future__ import annotations
@@ -39,7 +44,7 @@ def _bar(row: _T, col: str) -> Optional[float]:
 # Setup 1: Delivery Absorption & Volatility Contraction (VCP + Parkinson)
 # ---------------------------------------------------------------------------
 
-def evaluate_setup1_vcp_squeeze(row: _T) -> Optional[dict]:
+def evaluate_setup1_vcp_squeeze(row: _T, config=None) -> Optional[dict]:
     close = _bar(row, "close_adj")
     sma200 = _v(row, "sma200")
     if close is None or sma200 is None or not close > sma200:
@@ -64,12 +69,25 @@ def evaluate_setup1_vcp_squeeze(row: _T) -> Optional[dict]:
     if vol is None or sma20v is None or not vol <= 0.65 * sma20v:
         return None
 
-    # Volatility squeeze: narrow candle OR PV5 in lowest 15th percentile
-    high, low = _bar(row, "high_adj"), _bar(row, "low_adj")
-    narrow = (high is not None and low is not None
-              and (high - low) / close <= 0.015)
+    # Volatility squeeze: narrow candle OR PV5 in lowest 15th percentile.
+    # CR-2026-003 Phase B.4 (catalog.setup1_pv_binding=True): the Parkinson
+    # squeeze becomes BINDING (a narrow candle alone no longer qualifies) and
+    # a trend floor close >= sma20 * 0.99 is added; the delivery shock is
+    # already only a rolling accumulation footprint above.
     pv_pct = _v(row, "pv_percentile")
-    squeezed = narrow or (pv_pct is not None and pv_pct <= 0.15)
+    ccfg = getattr(config, "catalog", None) if config is not None else None
+    if ccfg is not None and bool(getattr(ccfg, "setup1_pv_binding", False)):
+        if pv_pct is None or not pv_pct <= 0.15:
+            return None
+        sma20 = _v(row, "sma20_close")
+        if sma20 is None or not close >= 0.99 * sma20:
+            return None
+        squeezed = True
+    else:
+        high, low = _bar(row, "high_adj"), _bar(row, "low_adj")
+        narrow = (high is not None and low is not None
+                  and (high - low) / close <= 0.015)
+        squeezed = narrow or (pv_pct is not None and pv_pct <= 0.15)
     if not squeezed:
         return None
 
@@ -86,7 +104,10 @@ def evaluate_setup1_vcp_squeeze(row: _T) -> Optional[dict]:
 # Setup 2: Secular Uptrend Rubber-Band Pullback (mean reversion)
 # ---------------------------------------------------------------------------
 
-def evaluate_setup2_rubberband(row: _T) -> Optional[dict]:
+def evaluate_setup2_rubberband(row: _T, config=None) -> Optional[dict]:
+    # No geometry knobs here: Setup 2's only CR-003 lever is the enable
+    # switch (B.1, handled by catalog_for_config). The config param exists so
+    # the ranker's uniform evaluator(row, config) dispatch cannot TypeError.
     close = _bar(row, "close_adj")
     sma200 = _v(row, "sma200")
     if close is None or sma200 is None or not close > sma200:
@@ -115,7 +136,8 @@ def evaluate_setup2_rubberband(row: _T) -> Optional[dict]:
 # Setup 3: Cross-Sectional Relative Strength Base Consolidation
 # ---------------------------------------------------------------------------
 
-def evaluate_setup3_rs_base(row: _T, nifty50_above_ema: bool = True) -> Optional[dict]:
+def evaluate_setup3_rs_base(row: _T, nifty50_above_ema: bool = True,
+                            config=None) -> Optional[dict]:
     if not nifty50_above_ema:
         return None
     rs_pct = _v(row, "rs_percentile")
@@ -132,7 +154,12 @@ def evaluate_setup3_rs_base(row: _T, nifty50_above_ema: bool = True) -> Optional
     if high_52w is None or not close >= 0.985 * high_52w:
         return None
 
-    return {"structural_stop": low, "max_stop_pct": 0.022,
+    # CR-2026-003 X2: the setup's own stop gate becomes config-readable
+    # (catalog.setup3_max_stop_pct, default 0.022 = historical). config=None
+    # (legacy callers, predicate unit tests) keeps the hard-coded 2.2%.
+    ccfg = getattr(config, "catalog", None) if config is not None else None
+    max_stop = float(getattr(ccfg, "setup3_max_stop_pct", 0.022)) if ccfg is not None else 0.022
+    return {"structural_stop": low, "max_stop_pct": max_stop,
             "tranche1_target_pct": 0.02, "tranche2_target_pct": 0.06}
 
 
@@ -140,7 +167,7 @@ def evaluate_setup3_rs_base(row: _T, nifty50_above_ema: bool = True) -> Optional
 # Setup 4: Multi-Month Base Breakout & Anchor Retest
 # ---------------------------------------------------------------------------
 
-def evaluate_setup4_anchor_retest(row: _T) -> Optional[dict]:
+def evaluate_setup4_anchor_retest(row: _T, config=None) -> Optional[dict]:
     close, high, low, open_ = (_bar(row, "close_adj"), _bar(row, "high_adj"),
                                _bar(row, "low_adj"), _bar(row, "open_adj"))
     # CR-2026-001 Issue 2: the anchor is the PRE-BREAKOUT 90-session ceiling,
@@ -159,13 +186,27 @@ def evaluate_setup4_anchor_retest(row: _T) -> Optional[dict]:
     if not (BREAKOUT_RETEST_AGE_MIN <= age <= BREAKOUT_RETEST_AGE_MAX):
         return None
     breakout_level = anchor
+    ccfg = getattr(config, "catalog", None) if config is not None else None
+    wide = bool(getattr(ccfg, "setup4_wide_geometry", False)) \
+        if ccfg is not None else False
 
-    # Support retest: today's low is within +/-0.8% of the breakout level and
-    # holds above it.
-    if not abs(low - breakout_level) / breakout_level <= 0.008:
-        return None
-    if not close >= breakout_level:
-        return None
+    # Support retest. Historical: today's low within +/-0.8% of the breakout
+    # level, closing above it. CR-2026-003 Phase B.2
+    # (catalog.setup4_wide_geometry=True): the low may penetrate up to
+    # -SETUP4_UNDERCUT_TOLERANCE (-2.5%) provided the close holds above
+    # anchor * 0.995; targets widen to SETUP4_TRANCHE1_TARGET (+3.5%) and the
+    # stop gate to SETUP4_MAX_STOP_PCT (3.5%) below.
+    if wide:
+        tol = float(getattr(ccfg, "setup4_undercut_tolerance", 0.025))
+        if not low >= breakout_level * (1.0 - tol):
+            return None
+        if not close >= breakout_level * 0.995:
+            return None
+    else:
+        if not abs(low - breakout_level) / breakout_level <= 0.008:
+            return None
+        if not close >= breakout_level:
+            return None
 
     # Volume dry-up on the retest
     vol, sma20v = _bar(row, "volume_adj"), _v(row, "sma20_vol")
@@ -180,6 +221,11 @@ def evaluate_setup4_anchor_retest(row: _T) -> Optional[dict]:
         return None
 
     stop = min(breakout_level, low) * 0.998
+    if wide:
+        return {"structural_stop": stop,
+                "max_stop_pct": float(getattr(ccfg, "setup4_max_stop_pct", 0.035)),
+                "tranche1_target_pct": float(getattr(ccfg, "setup4_tranche1_target", 0.035)),
+                "tranche2_target_pct": 0.06}
     return {"structural_stop": stop, "max_stop_pct": 0.020,
             "tranche1_target_pct": 0.02, "tranche2_target_pct": 0.06}
 
@@ -188,7 +234,7 @@ def evaluate_setup4_anchor_retest(row: _T) -> Optional[dict]:
 # Setup 5: Cross-Sectional Residual / Idiosyncratic Momentum
 # ---------------------------------------------------------------------------
 
-def evaluate_setup5_residual_momentum(row: _T) -> Optional[dict]:
+def evaluate_setup5_residual_momentum(row: _T, config=None) -> Optional[dict]:
     imom_pct = _v(row, "imom_percentile")
     if imom_pct is None or not imom_pct >= 0.95:
         return None
@@ -201,12 +247,23 @@ def evaluate_setup5_residual_momentum(row: _T) -> Optional[dict]:
     if not (dlv >= 2.0 * sma20d and close > open_):
         return None
 
-    # Structural stop: PRIOR day low (Setup 5 spec), not day-T low.
+    # Structural stop: PRIOR day low (Setup 5 spec), not day-T low — genuine
+    # market structure, un-clamped, exactly as CR-2026-003 Phase B.3 keeps it.
     prev_low = _v(row, "prev_low")
     if prev_low is None:
         return None
-    return {"structural_stop": prev_low, "max_stop_pct": 0.022,
-            "tranche1_target_pct": 0.02, "tranche2_target_pct": 0.06}
+    out = {"structural_stop": prev_low, "max_stop_pct": 0.022,
+           "tranche1_target_pct": 0.02, "tranche2_target_pct": 0.06}
+    ccfg = getattr(config, "catalog", None) if config is not None else None
+    if ccfg is not None and bool(getattr(ccfg, "setup5_use_risk_parity", False)):
+        # CR-2026-003 Phase B.3: metadata for Phase D's risk-parity admission.
+        # raw_risk_pct = (close_T - structural_stop) / close_T, UN-clamped —
+        # wide stops are sized for (Phase D.1), never rejected by a formula
+        # here. The ranker's generic stop gate still applies until D lands:
+        # this flag emits data, it does not change admission by itself.
+        out["is_risk_parity"] = True
+        out["raw_risk_pct"] = (close - prev_low) / close
+    return out
 
 
 SETUP_EVALUATORS = [
@@ -216,3 +273,28 @@ SETUP_EVALUATORS = [
     (SetupID.SETUP_4_ANCHOR_RETEST, evaluate_setup4_anchor_retest),
     (SetupID.SETUP_5_RESIDUAL_MOM, evaluate_setup5_residual_momentum),
 ]
+
+
+def _setup_enabled(setup_id: SetupID, config) -> bool:
+    """CR-2026-003 Phase B.1: consult config.catalog.enable_setupN when the
+    caller passes a config; a missing/legacy config object leaves every setup
+    enabled (the pre-CR-003 behavior). The config key is `enable_setupN`
+    (the CR-003 §A.1 spelling), mapped from the SetupID enum's number."""
+    catalog_cfg = getattr(config, "catalog", None)
+    if catalog_cfg is None:
+        return True
+    setup_number = setup_id.value.split("_")[1].lower()   # SETUP_2_RUBBERBAND -> "2"
+    return bool(getattr(catalog_cfg, f"enable_setup{setup_number}", True))
+
+
+def catalog_for_config(config=None) -> list[tuple[SetupID, object]]:
+    """The evaluator list filtered by config.catalog.enable_setupN switches.
+
+    CR-2026-003 Phase B.1: `config=None` (or a config without a catalog
+    section) returns the full five-setup catalog, so legacy callers and the
+    predicate unit tests are untouched. Disabling a setup means it is never
+    evaluated — no predicate run, no funnel-log fired count, no candidates.
+    """
+    if config is None:
+        return list(SETUP_EVALUATORS)
+    return [(sid, fn) for sid, fn in SETUP_EVALUATORS if _setup_enabled(sid, config)]

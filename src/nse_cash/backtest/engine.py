@@ -344,6 +344,24 @@ def slot_quantity(config, entry_ref: float,
     return int(capital // (entry_ref * (1.0 + _buy_friction_rate(config))))
 
 
+def risk_parity_qty(config, entry_ref: float, stop_raw: float) -> int | None:
+    """CR-2026-003 X2: shares for CONSTANT rupee stop-risk.
+
+    A candidate admitted with a stop wider than risk.max_structural_stop
+    (risk.risk_parity_stops) buys fewer shares so the rupee loss at the stop
+    stays max_structural_stop * slot_capital:
+        qty = slot_capital * max_stop / (entry_ref * stop_dist_frac)
+    Parity never upsizes: stops at or inside the wall return None (keep the
+    full slot); a stop so wide that even one share busts the risk budget
+    returns <= 0 — the caller skips the entry entirely.
+    """
+    stop_dist = (entry_ref - stop_raw) / entry_ref
+    if stop_dist <= config.risk.max_structural_stop:
+        return None
+    return int(config.capital.slot_capital * config.risk.max_structural_stop
+               / (entry_ref * stop_dist))
+
+
 def _execute_pending_entry(book: SimBook, config, cache: BarCache,
                            symbol: str, cand, entry_day: Date,
                            sector: str | None,
@@ -374,6 +392,23 @@ def _execute_pending_entry(book: SimBook, config, cache: BarCache,
     qty_total = slot_quantity(config, entry_ref)
     if qty_total <= 0:
         return
+    # CR-2026-003 X2: risk-parity sizing (see risk_parity_qty). A stop wider
+    # than the 2.2% wall buys fewer shares; a stop too wide to size within
+    # one slot's risk budget skips the entry entirely.
+    if config.risk.risk_parity_stops:
+        qty_parity = risk_parity_qty(config, entry_ref, stop_raw)
+        if qty_parity is not None:
+            if qty_parity <= 0:
+                log.debug("entry skipped for %s: stop unsizable within slot "
+                          "risk budget", symbol)
+                return
+            qty_total = min(qty_total, qty_parity)
+
+    # CR-2026-003 X1: t1_enabled=False -> no tranche split. The whole slot
+    # sits in tranche 2 so every legacy exit/marking path books full size.
+    # tranche1_target parks at 3x entry (unreachable under circuit limits) so
+    # no bar can fill a tranche that no longer exists.
+    t1_qty = 0 if not config.risk.t1_enabled else qty_total // 2
 
     pos = SimPosition(
         trade_id=f"{symbol}-{cand.date.isoformat()}",
@@ -382,10 +417,11 @@ def _execute_pending_entry(book: SimBook, config, cache: BarCache,
         entry_ref_raw=entry_ref,
         max_entry_raw=entry_ref * (1.0 + config.risk.max_gap_entry),
         structural_stop_raw=stop_raw,
-        tranche1_target_raw=entry_ref * (1.0 + cand.tranche1_target_pct),
+        tranche1_target_raw=(entry_ref * 3.0 if not config.risk.t1_enabled
+                             else entry_ref * (1.0 + cand.tranche1_target_pct)),
         tranche2_target_raw=entry_ref * (1.0 + cand.tranche2_target_pct),
-        tranche1_qty=qty_total // 2,
-        tranche2_qty=qty_total - qty_total // 2,
+        tranche1_qty=t1_qty,
+        tranche2_qty=qty_total - t1_qty,
         sector=sector,
         # CR-2026-001: the stop's LIMIT leg derives from config's
         # gtt_stop_limit_buffer inside the fill model (relative to whichever
@@ -640,6 +676,11 @@ def _build_trades_frame(book: SimBook) -> pd.DataFrame:
             "exit_proceeds": round(pos.exit_proceeds, 2),
             "realized_pnl": round(_realized_pnl(pos), 2),
             "hold_days": hold,
+            # CR-2026-003 exit-geometry telemetry (see fill_model._track_excursions).
+            "mfe_pct": round(pos.mfe_pct, 5),
+            "mae_pct": round(pos.mae_pct, 5),
+            "mfe_day": pos.mfe_day,
+            "mae_day": pos.mae_day,
         })
     return pd.DataFrame(rows)
 

@@ -31,11 +31,106 @@ class CapitalConfig(BaseModel):
         return self
 
 
+class CatalogConfig(BaseModel):
+    """Per-setup on/off switches (CR-2026-003 Phase A.1) and setup geometry
+    parameters (Phase A.3), read by the setup predicates (Phase B) and the
+    Stage-4 risk-parity admission (Phase D).
+
+    Each setup evaluates through the shared catalog; a disabled setup is
+    skipped entirely (predicate never runs, funnel log shows nothing fired).
+    Defaults implement CR-003 §3: Setup 2 (Rubber-Band Pullback) is pruned —
+    measured -Rs 62,620 over 116 walk-forward trades (68% of trading losses);
+    disabling it recovers +Rs 56.7k and lifts post-tax CAGR +1.93% -> +4.93%
+    (experiments/cr002/ab_disable_setup2.json). The other four stay enabled
+    pending their own A/B arms.
+
+    Geometry flags (setup4_wide_geometry, setup1_pv_binding) and the
+    Setup-5 risk-parity switch default OFF: the flag plumbing ships, the
+    geometry changes only when an A/B arm flips the switch. Setup 5's
+    structural anchor is ALREADY the un-clamped prev_low the CR's B.3 keeps,
+    so its arm switch (setup5_use_risk_parity) emits only the risk-parity
+    metadata Phase D.1 consumes. Value fields carry the CR-003 §A.3 literals
+    so each arm is a one-line config change.
+    """
+
+    enable_setup1: bool = True
+    enable_setup2: bool = False   # pruned per CR-2026-003 §3 (measured: 68% of losses)
+    enable_setup3: bool = True
+    enable_setup4: bool = True
+    enable_setup5: bool = True
+
+    # --- CR-2026-003 Phase A.3: Setup 4 target expansion (B.2) ---
+    # All off by default: identical behavior until the A/B arm opts in.
+    setup4_wide_geometry: bool = False
+    setup4_tranche1_target: float = 0.035   # lifted from 0.020
+    setup4_undercut_tolerance: float = 0.025  # retest low penetration, from 0.008
+    setup4_max_stop_pct: float = 0.035      # structural gate for the wide arm, from 0.020
+
+    # --- CR-2026-003 Phase A.3: Setup 5 risk parity (B.3, consumed by D.1) ---
+    setup5_use_risk_parity: bool = False
+    setup5_max_rupee_risk_pct: float = 0.022  # cap rupee stop risk at 2.2% of slot
+
+    # --- CR-2026-003 Phase A.3: Setup 1 volatility binding (B.4) ---
+    # False = historical behavior (narrow candle OR pv <= p15). True makes
+    # pv_percentile <= 0.15 binding and adds the close >= sma20*0.99 floor.
+    setup1_pv_binding: bool = False
+
+    # --- CR-2026-003 X2: Setup 3 stop-gate parameter ---
+    # The setup's own pre-entry stop gate (ranker filter). Default 0.022 =
+    # the historical 2.20% bar; the X2 wide arm raises it so S3's natural
+    # base lows survive the ranker. admission up to the widened gate then
+    # needs risk.risk_parity_stops (the sizing/wide-stop switch).
+    setup3_max_stop_pct: float = 0.022
+
+
+class RankingConfig(BaseModel):
+    """Ranker switches (CR-2026-003 Phase A.4 / E.1).
+
+    enforce_s_runner_gate=False (default) demotes the S_runner >= 0.45 bar
+    from a hard admission filter to an ordinal sort key only: the gate showed
+    mixed selection value within setups (Setup 4's admitted cohort lost MORE
+    than the rejected one — experiments/cr002/probe_output.txt P2b), and the
+    realized book clusters just above the bar (in-book S_runner min 0.449,
+    31.5% within [0.45, 0.50)) — an optimization artifact, not edge.
+    Set True to restore the CR-001 behavior (hard admission filter).
+    """
+
+    enforce_s_runner_gate: bool = False
+
+
+class FunnelConfig(BaseModel):
+    """Stage-1 environment conditioning (CR-2026-003 Phase A.2, consumed by
+    Phase C's breadth gate). breadth_offensive_min=0 disables the gate (the
+    pre-CR-003 behavior); 0.75 means new entries require Nifty 500 breadth
+    >= 75% of advancing constituents."""
+
+    breadth_offensive_min: float = 0.0       # 0 = gate off (pre-CR-003 default)
+    breadth_sizing_multiplier: float = 1.0   # optional slot-scaling knob (Phase C)
+
+
 class RiskConfig(BaseModel):
     max_structural_stop: float = 0.022
     max_gap_entry: float = 0.012
     stall_threshold: float = 0.008
     max_holding_days: int = 5
+    # CR-2026-003 experiment X1 (exit-geometry A/B; fill-model knobs):
+    #   t1_enabled=False removes the +2% tranche guillotine — one full-size
+    #   position rides to the T2 target / stop / time exit (no breakeven arm,
+    #   no T1_TARGET event; a T2 exit books the FULL quantity).
+    #   time_stop_enabled=False removes the Day-2 stall + Day-5 time exits —
+    #   positions live only by stop/target. max_holding_days stays the sole
+    #   time knob (e.g. 20 for the X1a 20-session-horizon arm).
+    # Both default True = pre-X1 behavior, byte-identical.
+    t1_enabled: bool = True
+    time_stop_enabled: bool = True
+    # CR-2026-003 X2 (risk-parity wide stops): when False (default) Stage 4
+    # hard-walls every candidate at risk.max_structural_stop (2.20%). When
+    # True, a candidate whose setup's own gate (max_stop_pct) is wider may
+    # admit up to that gate, and the ENGINE sizes the position so rupee
+    # stop-risk stays at max_structural_stop * slot_capital (fewer shares for
+    # a wider stop — same rupees at risk, more room to breathe). Flag off =
+    # legacy everywhere.
+    risk_parity_stops: bool = False
     kill_switch_drawdown: float = 0.075
     # Trading sessions of zero-new-entries after a kill switch fires (plan 6.4).
     kill_cooldown_days: int = 10
@@ -76,6 +171,9 @@ class SystemConfig(BaseModel):
     capital: CapitalConfig = CapitalConfig()
     risk: RiskConfig = RiskConfig()
     friction: FrictionConfig = FrictionConfig()
+    catalog: CatalogConfig = CatalogConfig()
+    ranking: RankingConfig = RankingConfig()
+    funnel: FunnelConfig = FunnelConfig()
     paths: PathsConfig = PathsConfig()
 
     model_config = {"validate_assignment": True}
@@ -100,7 +198,8 @@ def _apply_env_overrides(config: SystemConfig) -> None:
     cross-field invariants (e.g. num_slots * slot_capital == base_capital) see
     only the final state, never a partially-overridden intermediate.
     """
-    for section in ("capital", "risk", "friction", "paths"):
+    for section in ("capital", "risk", "friction", "catalog", "ranking",
+                    "funnel", "paths"):
         sub = getattr(config, section)
         attrs = type(sub).model_fields
         overrides: dict[str, object] = {}

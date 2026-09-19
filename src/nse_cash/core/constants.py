@@ -62,4 +62,5 @@ FEATURE_COLS = [
     "imom", "imom_percentile", "base_low_90", "base_high_90",
     "breakout_anchor_90", "breakout_age",
     "high_52w", "sma200", "sma200_slope5", "prev_low",
+    "sma20_close",  # CR-2026-003 B.4: Setup 1 trend floor when its flag is on
 ]

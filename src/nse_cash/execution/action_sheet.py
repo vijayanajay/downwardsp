@@ -12,7 +12,7 @@ from datetime import date as Date
 from rich.panel import Panel
 from rich.table import Table
 
-from nse_cash.backtest.engine import slot_quantity
+from nse_cash.backtest.engine import risk_parity_qty, slot_quantity
 from nse_cash.core.logger import console
 from nse_cash.execution.ledger import round_to_tick
 from nse_cash.funnel.sector_gate import UNKNOWN_SECTOR
@@ -64,6 +64,13 @@ def render_action_sheet(config, result, target_date: Date,
 
     for cand, _dec in result.accepted:
         qty = slot_quantity(config, cand.entry_ref, slot_capital)
+        # CR-2026-003 X2: parity-admitted wide stops size down here exactly as
+        # the engine does (same helper) — live sheet and backtest cannot
+        # disagree on share counts.
+        if getattr(config.risk, "risk_parity_stops", False):
+            pq = risk_parity_qty(config, cand.entry_ref, cand.structural_stop)
+            if pq is not None:
+                qty = min(qty, pq)
         t1_qty, t2_qty = qty // 2, qty - qty // 2
         t1_px = round_to_tick(cand.entry_ref * (1 + cand.tranche1_target_pct))
         t2_px = round_to_tick(cand.entry_ref * (1 + cand.tranche2_target_pct))

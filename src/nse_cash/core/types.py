@@ -130,6 +130,14 @@ class CandidateSignal(BaseModel):
     # never leave the stop sell unexecuted.
     stop_trigger: float = 0.0
     stop_limit: float = 0.0
+    # CR-2026-003 Phase B.3: risk-parity metadata, emitted by Setup 5 only
+    # when catalog.setup5_use_risk_parity is on. raw_risk_pct is the
+    # UN-clamped (close_T - structural_stop) / close_T so the Phase D.1
+    # admission can size allocation to the true stop distance. Every other
+    # setup (and the flag-off arm) carries is_risk_parity=False, None here:
+    # no downstream consumer may read it as risk data.
+    is_risk_parity: bool = False
+    raw_risk_pct: Optional[float] = None
 
 
 class TradeOrder(BaseModel):

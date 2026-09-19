@@ -22,8 +22,12 @@ is pinned here in one evaluation order, with a golden test for each:
   4.  T1 fills at its target on any session until filled. Breakeven arms at
       EOD — T2 protected from the next session only. Alternative runner
       policy: prev-day-low trail (`risk.runner_trail: prev_low`).
+      X1 knob: `risk.t1_enabled: false` removes the tranche entirely — one
+      full-size position rides to T2/stop/time (no T1 event, no breakeven arm).
   5.  EOD: 48-hour stall (Day T+2 close < entry * 1.008) exits the whole
       position at that close; Day 5 3:15 PM time exit at close.
+      X1 knob: `risk.time_stop_enabled: false` removes both — positions live
+      only by stop/target; `risk.max_holding_days` remains the sole time exit.
   6.  refresh_stops_eod: pending limit stop for the next session.
   7.  Corporate actions mid-trade: raw-space levels are scaled by the action's
       adjustment factor and quantity divided out; the pending stop absorbs the
@@ -128,6 +132,16 @@ class SimPosition:
     # sheet and backtest share one number.
     stop_limit_raw: float | None = None
     day_index: int = 0                      # sessions since T; entry day = 1
+    # CR-2026-003 exit-geometry telemetry (measurement only; never gates
+    # behavior): running MFE/MAE vs the raw fill price as decimals, plus the
+    # day_index of each extreme. mae_pct is the ADVERSE move as a positive
+    # number ((ref - low) / ref); mfe_pct is favorable and >= 0. Exit-day
+    # prices print too (the exit IS an excursion). Gap-rejected entries
+    # (entry_price_raw None) are never tracked.
+    mfe_pct: float = 0.0
+    mae_pct: float = 0.0
+    mfe_day: int = 0
+    mae_day: int = 0
 
     @property
     def is_open(self) -> bool:
@@ -214,6 +228,7 @@ def simulate_entry_day(pos: SimPosition, bar, config,
     pos.events.append(TradeEvent(
         EventType.ENTRY_FILLED, day, pos.symbol, 0, price=fill,
         qty=pos.tranche1_qty + pos.tranche2_qty))
+    _track_excursions(pos, h, l, pos.day_index)
 
     stop = pos.pending_stop_raw
     stop_touch = l <= stop + _TOL
@@ -238,8 +253,14 @@ def simulate_entry_day(pos: SimPosition, bar, config,
     if stop_touch:
         _exit_all(pos, stop, ExitReason.STRUCTURAL_STOP_HIT, day)
         return pos
-    if t1_touch:
+    if t1_touch and config.risk.t1_enabled:
         _fill_t1(pos, day)
+    # X1: with the tranche disabled, a T2 touch IS the exit — one full-size
+    # position, target fills the whole book (t1_filled can never gate it).
+    # Unambiguous: every stop-touch branch above already returned.
+    if not config.risk.t1_enabled and h >= pos.tranche2_target_raw - _TOL:
+        _exit_tranche2(pos, pos.tranche2_target_raw, ExitReason.TARGET_2_HIT, day)
+        return pos
 
     # (e) Still holding -> arm tomorrow's stop (breakeven if T1 filled today).
     _ = c  # close unused on entry day (stall/day-5 start at day 2+)
@@ -270,6 +291,8 @@ def simulate_open_day(pos: SimPosition, bar, config,
         _apply_corporate_action(pos, action_factor, day)
         o, h, l, c = float(bar["open"]), float(bar["high"]), float(bar["low"]), float(bar["close"])
 
+    _track_excursions(pos, h, l, pos.day_index)
+
     # Locked circuit: no counterparty, nothing can execute; position frozen.
     if h <= l + _TOL and abs(o - h) <= _TOL:
         pos.events.append(TradeEvent(
@@ -298,20 +321,24 @@ def simulate_open_day(pos: SimPosition, bar, config,
         if stop_touch:
             _exit_all(pos, stop, ExitReason.TRAILING_STOP_HIT, day)
             return pos
-        if t1_touch:
+        if t1_touch and config.risk.t1_enabled:
             _fill_t1(pos, day)
-        if pos.t1_filled and t2_touch:
+        # Legacy: T2 exits only after a T1 fill (breakeven-protected runner).
+        # X1 (t1_enabled=False): T2 touch exits the whole position directly.
+        if t2_touch and (pos.t1_filled or not config.risk.t1_enabled):
             _exit_tranche2(pos, pos.tranche2_target_raw, ExitReason.TARGET_2_HIT, day)
             return pos
 
-    # --- EOD checks, only if still holding ---
-    if pos.day_index == 2 and \
-            c < pos.breakeven_raw * (1.0 + config.risk.stall_threshold) - _TOL:
-        _exit_all(pos, c, ExitReason.STALL_48H_HIT, day)
-        return pos
-    if pos.day_index >= config.risk.max_holding_days:
-        _exit_all(pos, c, ExitReason.TIME_DAY5_HIT, day)
-        return pos
+    # --- EOD checks, only if still holding (X1: time_stop_enabled=False
+    # removes the stall + time exits; max_holding_days then never fires) ---
+    if config.risk.time_stop_enabled:
+        if pos.day_index == 2 and \
+                c < pos.breakeven_raw * (1.0 + config.risk.stall_threshold) - _TOL:
+            _exit_all(pos, c, ExitReason.STALL_48H_HIT, day)
+            return pos
+        if pos.day_index >= config.risk.max_holding_days:
+            _exit_all(pos, c, ExitReason.TIME_DAY5_HIT, day)
+            return pos
 
     refresh_stops_eod(pos, bar, config)
     return pos
@@ -357,6 +384,9 @@ def force_exit(pos: SimPosition, price: float, day: Date,
     """
     if not pos.is_open:
         return pos
+    # The exit price is an excursion print too (a kill-switch/END_OF_RUN exit
+    # can sit above the running MFE or below it).
+    _track_excursions(pos, price, price, pos.day_index)
     _exit_all(pos, price, reason, day)
     return pos
 
@@ -398,7 +428,7 @@ def _exit_all(pos: SimPosition, price: float, reason: ExitReason, day: Date,
               ambiguous: bool = False) -> None:
     """Stop/stall/time/kill exits close T1 (if unfilled) and T2 together."""
     event = _EVENT_FOR_REASON[reason]
-    if not pos.t1_filled:
+    if not pos.t1_filled and pos.tranche1_qty > 0:
         pos.events.append(TradeEvent(
             event, day, pos.symbol, 1, price=price,
             qty=pos.tranche1_qty, reason=reason.value,
@@ -418,8 +448,13 @@ def _apply_corporate_action(pos: SimPosition, factor: float, day: Date) -> None:
     adjustment. Raw stop/target/entry prices are pre-ex-date rupees; multiplying
     by the factor converts them into post-ex-date space for this bar onward.
     Quantities divide correspondingly (the volume-adjustment identity).
+
+    entry_price_raw is None until the fill (gap-rejected entries stay None
+    forever), so it is scaled only when set — the signal levels below are
+    always scaled because the gap check needs them in post-ex space.
     """
-    pos.entry_price_raw = round(pos.entry_price_raw * factor, 2)
+    if pos.entry_price_raw is not None:
+        pos.entry_price_raw = round(pos.entry_price_raw * factor, 2)
     pos.entry_ref_raw = round(pos.entry_ref_raw * factor, 2)
     pos.max_entry_raw = round(pos.max_entry_raw * factor, 2)
     pos.structural_stop_raw = round(pos.structural_stop_raw * factor, 2)
@@ -428,7 +463,10 @@ def _apply_corporate_action(pos: SimPosition, factor: float, day: Date) -> None:
     if pos.pending_stop_raw is not None:
         pos.pending_stop_raw = round(pos.pending_stop_raw * factor, 2)
     if factor > 0:
-        pos.tranche1_qty = max(1, round(pos.tranche1_qty / factor))
+        # X1: a disabled tranche (qty 0) stays 0 — max(1, ...) would conjure
+        # a phantom share that never sells.
+        pos.tranche1_qty = (max(1, round(pos.tranche1_qty / factor))
+                            if pos.tranche1_qty else 0)
         pos.tranche2_qty = max(1, round(pos.tranche2_qty / factor))
     pos.events.append(TradeEvent(
         EventType.CORPORATE_ACTION_ADJUSTED, day, pos.symbol, 0, price=factor,
@@ -458,6 +496,27 @@ def action_factor_for_date(actions: pd.DataFrame, day: Date) -> float | None:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+def _track_excursions(pos: SimPosition, high: float, low: float,
+                      day_index: int) -> None:
+    """Fold one session's high/low into the running MFE/MAE (CR-2026-003).
+
+    Measurement only: no rule may read these fields. MAE is kept as the
+    adverse move's magnitude ((ref - low) / ref, floored at 0) so it reads
+    directly against the 2.2% stop wall.
+    """
+    ref = pos.entry_price_raw
+    if not ref:
+        return
+    mfe = (high - ref) / ref
+    if mfe > pos.mfe_pct:
+        pos.mfe_pct = mfe
+        pos.mfe_day = day_index
+    mae = (ref - low) / ref
+    if mae > pos.mae_pct:
+        pos.mae_pct = mae
+        pos.mae_day = day_index
+
 
 def _bar_date(bar) -> Date:
     if hasattr(bar, "get") and "date" in bar:

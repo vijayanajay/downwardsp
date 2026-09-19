@@ -1,0 +1,36 @@
+CR-2026-004 frontier | friction 0.35%, STCG 20%, deployment Rs 62,500 | cohort n=405 (1-in-5 thinned)
+====================================================================================================
+
+== SETUP_3_RS_BASE (thinned n=49, ~x5 unthinned)
+  H\stop     0.022     0.05     0.08      0.1     0.12      1.0
+  H= 10         94      179      106      731      711      737
+  H= 20        621     1046      967     1885     2090     2191
+  H= 40       -728      315     1989     4604     5376     5610
+  H=20 s=10%: n=49 win=61.2% mean Rs +1885 med Rs +1281 P(stop)=22.4%
+
+== SETUP_4_ANCHOR_RETEST (thinned n=16, ~x5 unthinned)
+  H\stop     0.022     0.05     0.08      0.1     0.12      1.0
+  H= 10        -55     -426      780      875      826      826
+  H= 20        442      513     1712     2206     2128     2251
+  H= 40        922     1518     2817     3206     3612     4216
+  H=20 s=10%: n=16 win=62.5% mean Rs +2206 med Rs +1441 P(stop)=6.2%
+
+== SETUP_1_VCP (thinned n=268, ~x5 unthinned)
+  H\stop     0.022     0.05     0.08      0.1     0.12      1.0
+  H= 10       -149     -262     -260     -156     -174      -19
+  H= 20        -81      -77       61      170      205      303
+  H= 40         56       21      136      237      302      205
+  H=20 s=10%: n=267 win=56.2% mean Rs +170 med Rs +354 P(stop)=19.1%
+
+== SETUP_5_RESIDUAL_MOM (thinned n=72, ~x5 unthinned)
+  H\stop     0.022     0.05     0.08      0.1     0.12      1.0
+  H= 10       -631    -1030     -893     -737     -803     -791
+  H= 20       -385     -821     -411     -117     -182     -129
+  H= 40        -92     -113      316      491      403      320
+  H=20 s=10%: n=72 win=55.6% mean Rs -117 med Rs +12 P(stop)=9.7%
+
+S3 H20 s10 x breadth>=77.3: n=17 (x5=85) mean Rs +720/trade win 65%
+
+S3 H20 s10 x breadth<77.3: n=32 (x5=160) mean Rs +2504/trade win 59%
+
+DONE

@@ -1,0 +1,62 @@
+CR-2026-003 lever truth probe | friction 0.35%, STCG 20%, slot Rs 125,000, risk budget 2.20%
+====================================================================================================
+L2. Lever 2 retrospective: realized 216-trade book x signal-day breadth
+  filled book trades: 216  | total realized trading P&L: Rs -91,849
+  breadth >= 75.0: n= 93 P&L=Rs   -25,427 (win 37.6%, avg Rs    -273) | below: n=123 P&L=Rs   -66,422
+  breadth >= 77.333: n= 72 P&L=Rs    -2,979 (win 44.4%, avg Rs     -41) | below: n=144 P&L=Rs   -88,870
+  --- ex-Setup-2 book (Lever-1 world, n=100, P&L Rs -29,229) ---
+  breadth >= 75.0: n= 35 P&L=Rs    -2,618 (win 37.1%, avg Rs     -75) | below: n= 65 P&L=Rs   -26,611
+  breadth >= 77.333: n= 27 P&L=Rs    +8,537 (win 44.4%, avg Rs    +316) | below: n= 73 P&L=Rs   -37,766
+  >=77.3% cohort by year (full book):
+    2023: n= 31 P&L=Rs  +11,718 (win 54.8%)
+    2024: n=  1 P&L=Rs     +380 (win 100.0%)
+    2025: n= 32 P&L=Rs  -13,565 (win 34.4%)
+    2026: n=  8 P&L=Rs   -1,512 (win 37.5%)
+  realized Setup-5 trades (n=35): P&L Rs -10,412 | exit mix: {'STALL_48H_HIT': 15, 'STRUCTURAL_STOP_HIT': 10, 'TRAILING_STOP_HIT': 5, 'TARGET_2_HIT': 3, 'TIME_DAY5_HIT': 2}
+  Setup-5 trades by breadth (>=77.3): n=8 P&L Rs 10,243
+====================================================================================================
+Building engine-exact feature frame (reuses CR-002 machinery)...
+  frame: 826,076 rows, 1055 symbols, 2023-01-02..2026-09-09
+====================================================================================================
+L3. Lever 3: Setup 5 risk parity — does a wide stop + smaller size beat today's narrow gate?
+  fires: 4073 | risk<=2.2% today: 298 (7.3%) | median risk 7.78% | p90 16.18%
+    admitted TODAY (risk<=2.2%, full slot)       n=  298 | P(win)=61.4% | E[net]= -0.2426%/trade | med risk= 0.70% | BE p~ 49% | exits: BE_STOP:25, STALL:133, STOP:101, T2:24, TIME:15
+        rupee view (Rs 125,000 slot, full deployment): E[net]=    -303
+    CR-003 wide-stop cohort (all fires, risk-parity sized) n= 4073 | P(win)=68.3% | E[net]= -0.1894%/trade | med risk= 7.78% | BE p~104% | exits: BE_STOP:1305, STALL:1267, STOP:342, T2:1036, TIME:123
+        rupee view (Rs 125,000 slot): E[net]=    -237 | risk-parity E=     -95 (deploy median 28%; rupee stop-out 2,750)
+    CR-003 cohort x breadth>=77.3                n=  826 | P(win)=70.5% | E[net]= -0.0809%/trade | med risk= 8.41% | BE p~105% | exits: BE_STOP:278, STALL:252, STOP:44, T2:230, TIME:22
+        rupee view (Rs 125,000 slot): E[net]=    -101 | risk-parity E=     -30 (deploy median 26%; rupee stop-out 2,750)
+    CR-003 cohort x breadth<77.3                 n= 3247 | P(win)=67.7% | E[net]= -0.2170%/trade | med risk= 7.61% | BE p~104% | exits: BE_STOP:1027, STALL:1015, STOP:298, T2:806, TIME:101
+        rupee view (Rs 125,000 slot): E[net]=    -271 | risk-parity E=    -112 (deploy median 29%; rupee stop-out 2,750)
+  wide cohort by year:
+    2023: n= 1099 P(win)=70.4% E[net]= +0.050% E[risk-parity]=      -9 Rs/slot
+    2024: n= 1011 P(win)=72.9% E[net]= +0.052% E[risk-parity]=     +22 Rs/slot
+    2025: n= 1142 P(win)=63.7% E[net]= -0.436% E[risk-parity]=    -198 Rs/slot
+    2026: n=  821 P(win)=66.0% E[net]= -0.465% E[risk-parity]=    -212 Rs/slot
+====================================================================================================
+L4. Lever 4: Setup 4 expansion — current gate vs CR-003 geometry (undercut -2.5%, close>=99.5%, T1 3.5%)
+  retest windows: 28554
+  current predicate: 113 fires -> with 2.0% stop gate: 36
+  CR-003 predicate:  205 fires -> with 3.5% stop gate: 165 (x4.6)
+  undercut distribution where pen<0: median -3.113%; pen < -0.8%: 31.5% of windows; pen < -2.5%: 21.3%
+  CR-003 gated cohort risk: median 2.26%, p90 3.25% | fires needing >2.2% legacy stop: 53.9% (NOT risk-parity sized by the CR: rupee stop-out up to Rs 4,066)
+    current gate, T1=+2%                         n=   36 | P(win)=36.1% | E[net]= -0.4912%/trade | med risk= 1.57% | BE p~ 67% | exits: BE_STOP:3, STALL:3, STOP:21, T2:6, TIME:3
+        rupee view (Rs 125,000 slot, full deployment): E[net]=    -614
+    CR-003 gate, T1=+2%                          n=  165 | P(win)=55.8% | E[net]= -0.1729%/trade | med risk= 2.26% | BE p~ 77% | exits: BE_STOP:38, STALL:28, STOP:58, T2:33, TIME:8
+        rupee view (Rs 125,000 slot, full deployment): E[net]=    -216
+    CR-003 gate, T1=+3.5% (CR proposal)          n=  165 | P(win)=45.5% | E[net]= -0.1365%/trade | med risk= 2.26% | BE p~ 57% | exits: BE_STOP:14, STALL:34, STOP:68, T2:37, TIME:12
+        rupee view (Rs 125,000 slot, full deployment): E[net]=    -171
+  CR-003 gate x breadth>=77.3: 56 fires (2023-2026 -> 15/yr before slots/regime/dedupe)
+====================================================================================================
+L5. Lever 5: S_runner >= 0.45 gate — who does it keep, and does the kept cohort lose less?
+    Setup 1          S>=0.45: n=  716 P(win)=44.4% E[net]= -0.299%/trade (own stop, T1=+2%)
+    Setup 1          S< 0.45: n= 1313 P(win)=37.2% E[net]= -0.343%/trade (own stop, T1=+2%)
+    Setup 3          S>=0.45: n=  923 P(win)=42.9% E[net]= -0.172%/trade (own stop, T1=+2%)
+    Setup 3          S< 0.45: n=  341 P(win)=43.7% E[net]= -0.272%/trade (own stop, T1=+2%)
+    Setup 4 windows  S>=0.45: n= 5218 P(win)=49.8% E[net]= -0.371%/trade (own stop, T1=+2%)
+    Setup 4 windows  S< 0.45: n=12264 P(win)=49.6% E[net]= -0.281%/trade (own stop, T1=+2%)
+    Setup 5          S>=0.45: n= 1061 P(win)=59.8% E[net]= -0.206%/trade (own stop, T1=+2%)
+    Setup 5 S< 0.45: n=7 (too few)
+  in-book S_runner (n=216 of 216 matched): min=0.449 p10=0.466 median=0.539 | share in the 0.45-0.50 band: 31.5%
+
+DONE
