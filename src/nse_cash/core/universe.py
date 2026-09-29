@@ -93,7 +93,7 @@ def build_pit_universe_range(store, start, end,
         ),
         day_qual AS (
             SELECT date, symbol, adtv_90,
-                   row_number() OVER (PARTITION BY date ORDER BY adtv_90 DESC) AS rank
+                   row_number() OVER (PARTITION BY date ORDER BY coalesce(adtv_90, -1) DESC) AS rank
             FROM with_adtv
             WHERE date BETWEEN ? AND ?
               AND adtv_90 >= {ADTV_MIN_RUPEES}
