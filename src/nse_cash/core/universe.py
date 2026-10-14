@@ -101,8 +101,8 @@ def build_pit_universe_range(store, start, end,
         )
         SELECT date, symbol, adtv_90, rank
         FROM day_qual
-        WHERE rank <= {UNIVERSE_SIZE}
-        ORDER BY date, rank
+        WHERE coalesce(rank, rank) <= {UNIVERSE_SIZE}
+        ORDER BY date, coalesce(rank, rank)
     """
     membership = store.con.execute(q, [end_d, start_d, end_d]).df()
     store.con.execute("DELETE FROM pit_universe WHERE date BETWEEN ? AND ?", [start_d, end_d])
